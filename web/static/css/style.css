@@ -967,3 +967,54 @@ input[type="text"]:focus {
     border-color: #f1c40f;
 }
 
+/* 卡牌详细信息标签 */
+.card-level-tag {
+    background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-weight: bold;
+    margin: 0 3px;
+    display: inline-block;
+}
+
+.card-permanent-tag {
+    background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-weight: bold;
+    margin: 0 3px;
+    display: inline-block;
+}
+
+.evolution-info {
+    display: block;
+    color: #2ecc71;
+    font-size: 0.85em;
+    margin-top: 5px;
+    padding: 3px 0;
+    opacity: 0.9;
+}
+
+.mini-card {
+    background: rgba(255, 255, 255, 0.15);
+    padding: 10px;
+    border-radius: 6px;
+    margin: 5px 0;
+    font-size: 0.9em;
+    line-height: 1.5;
+    transition: all 0.2s;
+}
+
+.mini-card:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateX(3px);
+}
+
+.mini-card strong {
+    color: #f1c40f;
+}
+

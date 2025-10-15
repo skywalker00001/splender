@@ -172,15 +172,19 @@ class SplendorAPI {
     }
 
     /**
-     * 保留卡牌
+     * 保留卡牌（支持普通预购和盲预购）
      */
-    async reserveCard(roomId, playerName, card) {
+    async reserveCard(roomId, playerName, cardOrData) {
+        // 如果是盲预购，cardOrData包含 {blind: true, level: X}
+        // 如果是普通预购，cardOrData是卡牌对象 {name: "..."}
+        const requestBody = {
+            player_name: playerName,
+            ...cardOrData
+        };
+        
         return this.request(`/rooms/${roomId}/reserve_card`, {
             method: 'POST',
-            body: JSON.stringify({
-                player_name: playerName,
-                card: card
-            })
+            body: JSON.stringify(requestBody)
         });
     }
 

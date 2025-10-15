@@ -93,7 +93,7 @@ class GameUI {
             const remainingAfterTake = ballPool[ballType] - 2;
             if (remainingAfterTake < 2) {
                 // 拿完后剩余不足2个，不满足规则
-                alert(`${BALL_CONFIG[ballType]?.emoji || ballType}色的球拿完2个后必须还剩≥2个（当前只有${ballPool[ballType]}个，拿完后剩${remainingAfterTake}个）`);
+                alert(`${BALL_CONFIG[ballType]?.emoji || ballType}色球所剩不大于等于4的时候无法拿取2个（当前只有${ballPool[ballType]}个）`);
                 this.clearBallSelection();
                 return;
             }
@@ -478,13 +478,7 @@ class GameUI {
      * 购买卡牌
      */
     buyCard(card) {
-        const data = {
-            player_name: this.currentPlayerName,
-            card_name: card.name,
-            from_reserved: false
-        };
-
-        api.buyCard(this.currentRoomId, data)
+        api.buyCard(this.currentRoomId, this.currentPlayerName, { name: card.name })
             .then(response => {
                 if (response.success) {
                     showToast('购买成功！', 'success');
@@ -504,13 +498,7 @@ class GameUI {
      * 预购卡牌
      */
     reserveCard(card) {
-        const data = {
-            player_name: this.currentPlayerName,
-            card_name: card.name,
-            blind: false
-        };
-
-        api.reserveCard(this.currentRoomId, data)
+        api.reserveCard(this.currentRoomId, this.currentPlayerName, { card: { name: card.name } })
             .then(response => {
                 if (response.success) {
                     showToast('预购成功！', 'success');
@@ -534,13 +522,7 @@ class GameUI {
             return;
         }
 
-        const data = {
-            player_name: this.currentPlayerName,
-            level: level,
-            blind: true
-        };
-
-        api.reserveCard(this.currentRoomId, data)
+        api.reserveCard(this.currentRoomId, this.currentPlayerName, { level: level, blind: true })
             .then(response => {
                 if (response.success) {
                     showToast('盲预购成功！', 'success');
@@ -594,6 +576,47 @@ class GameUI {
     }
 
     /**
+     * 格式化卡牌信息（用于显示已拥有/预购卡牌）
+     */
+    formatCardInfo(card) {
+        let info = `<div class="mini-card">`;
+        
+        // 基本信息：名称 + 分数
+        info += `<strong>${card.name}</strong> (${card.victory_points}VP)`;
+        
+        // 等级
+        if (card.level) {
+            info += ` <span class="card-level-tag">Lv${card.level}</span>`;
+        }
+        
+        // 提供的抵扣颜色
+        if (card.permanent_balls && Object.keys(card.permanent_balls).length > 0) {
+            const permanentStr = Object.entries(card.permanent_balls)
+                .filter(([_, amount]) => amount > 0)
+                .map(([ball, amount]) => {
+                    const config = BALL_CONFIG[ball];
+                    return `${config?.emoji || ball}${amount > 1 ? '×' + amount : ''}`;
+                })
+                .join('');
+            info += ` <span class="card-permanent-tag">${permanentStr}</span>`;
+        }
+        
+        // 进化信息（仅1/2级卡牌）
+        if (card.evolution_target && card.evolution_requirement) {
+            const evolutionReq = Object.entries(card.evolution_requirement)
+                .map(([ball, amount]) => {
+                    const config = BALL_CONFIG[ball];
+                    return `${amount}${config?.emoji || ball}`;
+                })
+                .join('');
+            info += `<br><small class="evolution-info">🔄 进化：${card.evolution_target}（${evolutionReq}进化）</small>`;
+        }
+        
+        info += `</div>`;
+        return info;
+    }
+
+    /**
      * 创建玩家信息元素
      */
     createPlayerInfoElement(playerName, state, isCurrentTurn) {
@@ -623,12 +646,12 @@ class GameUI {
 
         // 已拥有卡牌
         const cardsDisplay = (state.display_area || [])
-            .map(card => `<div class="mini-card">${card.name} (${card.victory_points}VP)</div>`)
+            .map(card => this.formatCardInfo(card))
             .join('') || '<div class="no-cards">暂无</div>';
 
         // 预定卡牌
         const reservedDisplay = (state.reserved_cards || [])
-            .map(card => `<div class="mini-card">${card.name} (${card.victory_points}VP)</div>`)
+            .map(card => this.formatCardInfo(card))
             .join('') || '<div class="no-cards">暂无</div>';
 
         playerDiv.innerHTML = `
