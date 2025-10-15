@@ -271,12 +271,27 @@ async function updateRoomInfo() {
             playersList.appendChild(li);
         });
         
-        document.getElementById('player-count').textContent = state.players.length;
+        // 更新玩家计数显示
+        const maxPlayers = state.max_players || 4;
+        const victoryPoints = state.victory_points || 18;
+        document.getElementById('player-count').textContent = `${state.players.length}/${maxPlayers}`;
+        
+        // 显示/隐藏配置面板（仅房主可见）
+        const configPanel = document.getElementById('game-config-panel');
+        if (isCreator) {
+            configPanel.style.display = 'block';
+            document.getElementById('max-players-select').value = maxPlayers;
+            document.getElementById('victory-points-input').value = victoryPoints;
+        } else {
+            configPanel.style.display = 'none';
+        }
         
         // 更新开始游戏按钮
         const startBtn = document.getElementById('start-game-btn');
-        if (isCreator && state.players.length >= 2) {
+        if (isCreator && state.players.length === maxPlayers) {
             startBtn.disabled = false;
+        } else {
+            startBtn.disabled = true;
         }
         
         // 如果游戏已经开始，切换到游戏界面
@@ -449,4 +464,18 @@ function resetGame() {
 document.addEventListener('DOMContentLoaded', initApp);
 
 
+
+
+// 更新配置按钮事件
+document.getElementById('update-config-btn')?.addEventListener('click', async () => {
+    const maxPlayers = parseInt(document.getElementById('max-players-select').value);
+    const victoryPoints = parseInt(document.getElementById('victory-points-input').value);
+    
+    try {
+        const response = await api.updateRoomConfig(currentRoom, playerName, maxPlayers, victoryPoints);
+        showToast(`配置已更新：${maxPlayers}人，${victoryPoints}分胜利`, 'success');
+    } catch (error) {
+        showToast('更新配置失败: ' + error.message, 'error');
+    }
+});
 

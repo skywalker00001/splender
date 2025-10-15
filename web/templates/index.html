@@ -49,6 +49,26 @@
                         <ul id="players-list"></ul>
                     </div>
                     
+                    <div id="game-config-panel" class="bot-controls" style="display: none;">
+                        <h3>⚙️ 游戏配置（房主专用）</h3>
+                        <div style="margin: 10px 0;">
+                            <label>玩家数量: 
+                                <select id="max-players-select" class="ai-select">
+                                    <option value="1">1人</option>
+                                    <option value="2">2人</option>
+                                    <option value="3">3人</option>
+                                    <option value="4" selected>4人</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div style="margin: 10px 0;">
+                            <label>胜利分数: 
+                                <input type="number" id="victory-points-input" value="18" min="10" max="30" style="width: 80px; padding: 5px;">
+                            </label>
+                        </div>
+                        <button id="update-config-btn" class="btn btn-secondary">更新配置</button>
+                    </div>
+                    
                     <div class="bot-controls">
                         <h3>🤖 添加AI机器人</h3>
                         <p>人数不够？添加机器人一起玩！</p>
@@ -69,6 +89,11 @@
                         <button id="leave-room-btn" class="btn btn-secondary">离开房间</button>
                     </div>
                     
+                    <div class="button-group" style="margin-top: 10px;">
+                        <button id="view-rules-room-btn" class="btn btn-secondary">📖 查看规则</button>
+                        <button id="view-cards-room-btn" class="btn btn-secondary">🎴 查看卡库</button>
+                    </div>
+                    
                     <div id="creator-controls" class="creator-controls" style="display: none;">
                         <button id="delete-room-btn" class="btn btn-danger">🗑️ 删除房间</button>
                     </div>
@@ -82,7 +107,14 @@
                 <!-- 顶部信息栏 -->
                 <div class="game-header">
                     <div class="current-player-info">
-                        <h2>当前玩家: <span id="current-player-name"></span></h2>
+                        <h2>
+                            🎮 回合 <span id="turn-number">1</span> | 
+                            当前玩家: <span id="current-player-name"></span>
+                        </h2>
+                        <div style="margin-top: 8px; font-size: 0.9em; opacity: 0.8;">
+                            胜利目标: <span id="victory-goal">18</span>分 | 
+                            玩家数: <span id="total-players">4</span>人
+                        </div>
                         <!-- AI控制面板 -->
                         <div id="ai-control-panel" class="ai-control-panel" style="display: none;">
                             <label for="controlled-ai-select">🎮 控制AI: </label>
@@ -93,6 +125,8 @@
                         </div>
                     </div>
                     <div class="game-controls">
+                        <button id="view-rules-game-btn" class="btn btn-secondary btn-small">📖 规则</button>
+                        <button id="view-cards-game-btn" class="btn btn-secondary btn-small">🎴 卡库</button>
                         <button id="quit-game-btn" class="btn btn-danger">退出游戏</button>
                     </div>
                 </div>
@@ -169,10 +203,33 @@
             </div>
         </div>
     </div>
+    
+    <!-- 规则弹窗 -->
+    <div id="rules-modal" class="info-modal" style="display: none;">
+        <div class="info-modal-content">
+            <div class="info-modal-header">
+                <h2>📖 游戏规则</h2>
+                <button class="info-modal-close" onclick="closeRulesModal()">✕</button>
+            </div>
+            <div class="info-modal-body" id="rules-content"></div>
+        </div>
+    </div>
+    
+    <!-- 卡库弹窗 -->
+    <div id="cards-modal" class="info-modal" style="display: none;">
+        <div class="info-modal-content">
+            <div class="info-modal-header">
+                <h2>🎴 卡牌图鉴</h2>
+                <button class="info-modal-close" onclick="closeCardsModal()">✕</button>
+            </div>
+            <div class="info-modal-body" id="cards-content"></div>
+        </div>
+    </div>
 
     <script src="{{ url_for('static', filename='js/api.js') }}"></script>
     <script src="{{ url_for('static', filename='js/game.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/info-modals.js') }}"></script>
 </body>
 </html>
 

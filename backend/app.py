@@ -39,10 +39,14 @@ class GameRoom:
         self.status = "waiting"  # waiting, playing, finished
         self.created_at = datetime.now()
         self.last_activity = datetime.now()
+        # 游戏配置
+        self.max_players = 4  # 默认4人
+        self.victory_points = 18  # 默认18分胜利
+        self.turn_number = 0  # 回合数
         
     def add_player(self, player_name, is_ai=False, ai_difficulty="中等"):
         """添加玩家"""
-        if len(self.players) < 4 and player_name not in self.players:
+        if len(self.players) < self.max_players and player_name not in self.players:
             self.players.append(player_name)
             if is_ai:
                 self.ai_players[player_name] = create_ai_player(ai_difficulty)
@@ -64,12 +68,21 @@ class GameRoom:
         return False
         
     def start_game(self):
-        """开始游戏 - 必须4人"""
-        if len(self.players) == 4:
-            self.game = SplendorPokemonGame(self.players)
+        """开始游戏 - 必须达到配置的玩家数量"""
+        if len(self.players) == self.max_players:
+            self.game = SplendorPokemonGame(self.players, victory_points=self.victory_points)
             self.status = "playing"
+            self.turn_number = 1  # 第一回合
             return True
         return False
+    
+    def update_config(self, max_players=None, victory_points=None):
+        """更新游戏配置（仅房主可用）"""
+        if max_players is not None:
+            self.max_players = max(1, min(4, max_players))  # 限制在1-4人
+        if victory_points is not None:
+            self.victory_points = max(10, min(30, victory_points))  # 限制在10-30分
+        return True
         
     def get_game_state(self):
         """获取游戏状态"""
@@ -77,7 +90,10 @@ class GameRoom:
             return {
                 "status": self.status,
                 "players": self.players,
-                "room_id": self.room_id
+                "room_id": self.room_id,
+                "max_players": self.max_players,
+                "victory_points": self.victory_points,
+                "creator_name": self.creator_name
             }
             
         current_player = self.game.get_current_player()
@@ -89,6 +105,9 @@ class GameRoom:
             "current_player": current_player.name,
             "game_over": self.game.game_over,
             "winner": self.game.winner.name if self.game.winner else None,
+            "max_players": self.max_players,
+            "victory_points": self.victory_points,
+            "turn_number": self.turn_number,
             "ball_pool": {ball.value: count for ball, count in self.game.ball_pool.items()},
             "tableau": {
                 str(tier): [
@@ -402,6 +421,38 @@ def delete_room(room_id):
         
     return jsonify({
         "message": "房间已删除"
+    })
+
+@app.route('/api/rooms/<room_id>/config', methods=['POST'])
+def update_room_config(room_id):
+    """更新房间配置（房主专用）"""
+    data = request.get_json()
+    player_name = data.get('player_name')
+    max_players = data.get('max_players')
+    victory_points = data.get('victory_points')
+    
+    with room_lock:
+        if room_id not in game_rooms:
+            return jsonify({"error": "房间不存在"}), 404
+            
+        room = game_rooms[room_id]
+        
+        # 检查是否是房主
+        if room.creator_name != player_name:
+            return jsonify({"error": "只有房主可以修改配置"}), 403
+        
+        # 检查游戏状态
+        if room.status != "waiting":
+            return jsonify({"error": "游戏已开始，无法修改配置"}), 400
+        
+        # 更新配置
+        room.update_config(max_players=max_players, victory_points=victory_points)
+        room.last_activity = datetime.now()
+        
+    return jsonify({
+        "message": "配置更新成功",
+        "max_players": room.max_players,
+        "victory_points": room.victory_points
     })
 
 @app.route('/api/rooms/<room_id>/start', methods=['POST'])
@@ -834,8 +885,15 @@ def end_turn(room_id):
         if not room.game or room.game.get_current_player().name != player_name:
             return jsonify({"error": "不是你的回合"}), 400
             
+        # 记录当前玩家索引
+        current_index = room.game.players.index(room.game.get_current_player())
+        
         # end_turn 已经包含了进化检查、球数上限检查、胜利检查等
         room.game.end_turn()
+        
+        # 如果轮到下一轮（最后一个玩家结束回合），回合数+1
+        if current_index == len(room.game.players) - 1:
+            room.turn_number += 1
         
         # 获取下一个玩家
         if not room.game.game_over:
@@ -851,6 +909,75 @@ def end_turn(room_id):
         "game_over": room.game.game_over if room.game else False,
         "winner": room.game.winner.name if room.game and room.game.winner else None
     })
+
+@app.route('/api/cards', methods=['GET'])
+def get_cards():
+    """获取所有卡牌数据（用于卡库展示）"""
+    try:
+        import csv
+        import os
+        
+        # 读取CSV文件
+        csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'card_library', 'cards_data.csv')
+        cards = []
+        
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # 解析成本
+                cost = {}
+                for ball_color in ['黑', '粉', '黄', '蓝', '红', '大师球']:
+                    key = f'购买成本_{ball_color}'
+                    if key in row and row[key] and row[key].strip():
+                        amount = int(row[key])
+                        if amount > 0:
+                            cost[ball_color] = amount
+                
+                # 解析永久球
+                permanent = {}
+                if row.get('永久球颜色') and row['永久球颜色'].strip() and row['永久球颜色'] != '无':
+                    ball_color = row['永久球颜色']
+                    ball_amount = int(row.get('永久球数量', 0))
+                    if ball_amount > 0:
+                        permanent[ball_color] = ball_amount
+                
+                # 解析进化信息
+                evolution_target = None
+                evolution_requirement = {}
+                if row.get('进化后卡牌') and row['进化后卡牌'].strip() and row['进化后卡牌'] != '无':
+                    evolution_target = row['进化后卡牌']
+                    if row.get('进化所需球颜色') and row['进化所需球颜色'] != '无':
+                        evo_color = row['进化所需球颜色']
+                        evo_amount = int(row.get('进化所需球个数', 0))
+                        if evo_amount > 0:
+                            evolution_requirement[evo_color] = evo_amount
+                
+                # 确定稀有度
+                level = int(row['卡牌等级'])
+                if level == 4:
+                    rarity = '稀有'
+                elif level == 5:
+                    rarity = '传说'
+                else:
+                    rarity = '普通'
+                
+                card = {
+                    'name': row['卡牌名称'],
+                    'level': level,
+                    'rarity': rarity,
+                    'victory_points': int(row['胜利点数']),
+                    'cost': cost,
+                    'permanent': permanent,
+                    'evolution_target': evolution_target,
+                    'evolution_requirement': evolution_requirement
+                }
+                cards.append(card)
+        
+        return jsonify({"success": True, "cards": cards})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/rooms', methods=['GET'])
 def list_rooms():

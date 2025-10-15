@@ -3,6 +3,7 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent; /* 移除移动端点击高亮 */
 }
 
 body {
@@ -10,6 +11,8 @@ body {
     background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
     color: #ecf0f1;
     min-height: 100vh;
+    -webkit-text-size-adjust: 100%; /* 防止iOS自动调整字体大小 */
+    touch-action: manipulation; /* 禁用双击缩放 */
 }
 
 .container {
@@ -624,30 +627,383 @@ input[type="text"]:focus {
 /* 响应式设计 */
 @media (max-width: 1200px) {
     .game-main {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr 320px; /* 保持两列，右侧窄一些 */
+        gap: 15px;
+    }
+    
+    /* 移动端：紧凑的玩家信息显示 */
+    .player-card {
+        margin-bottom: 10px;
+    }
+    
+    .player-info {
+        font-size: 0.9em;
+    }
+    
+    .player-balls, .player-permanent {
+        padding: 8px;
+        margin: 5px 0;
+    }
+    
+    .player-cards, .player-reserved {
+        display: none; /* 默认隐藏，点击展开 */
+    }
+    
+    .player-card.expanded .player-cards,
+    .player-card.expanded .player-reserved {
+        display: block;
+    }
+}
+
+/* 平板竖屏 */
+@media (max-width: 900px) {
+    .game-main {
+        grid-template-columns: 1fr; /* 单列布局 */
     }
     
     .game-right {
-        order: -1;
+        order: 1; /* 玩家信息在游戏区域之后 */
+    }
+    
+    /* 默认隐藏详细信息 */
+    .player-cards, .player-reserved {
+        display: none !important;
+    }
+    
+    .player-card.expanded .player-cards,
+    .player-card.expanded .player-reserved {
+        display: block !important;
     }
 }
 
 @media (max-width: 768px) {
+    /* 标题和文本大小 */
     .title {
-        font-size: 1.8em;
+        font-size: 1.5em;
+        padding: 10px 0;
     }
     
-    .gem-pool {
+    .subtitle {
+        font-size: 1em;
+    }
+    
+    /* 游戏头部 */
+    .game-header {
+        flex-direction: column;
+        padding: 10px 15px;
         gap: 10px;
     }
     
+    .game-header h2 {
+        font-size: 1.2em;
+    }
+    
+    .game-controls {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+    }
+    
+    /* 按钮优化 */
+    .btn {
+        padding: 10px 15px;
+        font-size: 0.9em;
+    }
+    
+    .btn-small {
+        padding: 6px 10px;
+        font-size: 0.8em;
+    }
+    
+    /* 球池优化 - 紧凑单行显示 */
+    .gem-pool {
+        gap: 4px;
+        padding: 10px;
+        flex-wrap: nowrap; /* 强制不换行 */
+        overflow-x: auto; /* 如果太窄就横向滚动 */
+    }
+    
     .gem-item {
-        flex: 0 0 calc(33.333% - 10px);
-        min-width: 80px;
+        flex: 0 0 calc(16.666% - 4px); /* 6个球一行 */
+        min-width: 50px;
+        max-width: 70px;
+        font-size: 0.8em;
+        padding: 8px 4px;
+    }
+    
+    .gem-emoji {
+        font-size: 1.3em;
+        margin-bottom: 2px;
+    }
+    
+    .gem-count {
+        font-size: 0.9em;
+    }
+    
+    /* 卡牌优化 */
+    .pokemon-card, .noble-card, .rare-card, .legendary-card {
+        min-width: 140px;
+        padding: 10px;
+        font-size: 0.85em;
+    }
+    
+    .card-row, .noble-row {
+        gap: 8px;
+    }
+    
+    .deck-card {
+        min-width: 100px;
+        padding: 10px;
+    }
+    
+    /* 玩家信息紧凑显示 */
+    .player-card {
+        margin-bottom: 8px;
+        padding: 12px;
+    }
+    
+    .player-card h3 {
+        font-size: 0.95em;
+        cursor: pointer;
+        user-select: none;
+        margin-bottom: 8px;
+    }
+    
+    .player-card h3::after {
+        content: " 👆点击展开";
+        font-size: 0.75em;
+        opacity: 0.6;
+        font-weight: normal;
+    }
+    
+    .player-card.expanded h3::after {
+        content: " 👇点击收起";
+        font-size: 0.75em;
+    }
+    
+    .player-stats {
+        flex-direction: row;
+        gap: 10px;
+    }
+    
+    .stat-item {
+        font-size: 0.85em;
+    }
+    
+    .player-balls h4,
+    .player-permanent h4,
+    .player-cards h4,
+    .player-reserved h4 {
+        font-size: 0.85em;
+        margin-bottom: 5px;
+    }
+    
+    .player-balls,
+    .player-permanent {
+        padding: 6px;
+        margin: 5px 0;
+    }
+    
+    .gem-badge {
+        padding: 2px 5px;
+        font-size: 0.7em;
+        min-width: 35px;
+    }
+    
+    .ball-list {
+        gap: 2px;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+    }
+    
+    .mini-card {
+        padding: 8px;
+        font-size: 0.85em;
+    }
+    
+    /* 选择的球显示 */
+    .selected-gems {
+        padding: 10px;
+        font-size: 0.9em;
+    }
+    
+    /* 卡片容器 */
+    .card {
+        padding: 15px;
+        margin: 10px 0;
+    }
+    
+    /* 弹窗优化 */
+    .info-modal {
+        padding: 10px;
+    }
+    
+    .info-modal-content {
+        max-width: 100%;
+        max-height: 95vh;
+    }
+    
+    .info-modal-header {
+        padding: 15px;
+    }
+    
+    .info-modal-header h2 {
+        font-size: 1.3em;
+    }
+    
+    .info-modal-body {
+        padding: 15px;
+        font-size: 0.9em;
+    }
+    
+    .cards-library-grid-compact {
+        grid-template-columns: repeat(5, 1fr); /* 保持5列 */
+        gap: 5px;
+    }
+    
+    .library-card-compact {
+        padding: 8px;
+        min-height: 100px;
+        font-size: 0.85em;
+    }
+    
+    .library-card-name {
+        font-size: 0.9em;
+    }
+    
+    .cards-library-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 10px;
+    }
+    
+    .library-card {
+        padding: 10px;
+    }
+    
+    /* 房间列表 */
+    .room-item {
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
+    }
+    
+    .button-group {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    
+    /* 玩家列表 */
+    #players-list li {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
+    
+    /* Toast提示 */
+    .toast {
+        right: 10px;
+        top: 10px;
+        max-width: calc(100% - 20px);
+        font-size: 0.9em;
+    }
+}
+
+/* 超小屏幕 */
+@media (max-width: 480px) {
+    .game-header h2 {
+        font-size: 1em;
+    }
+    
+    /* 超小屏幕球池 - 强制6个一行 */
+    .gem-pool {
+        gap: 2px;
+        padding: 8px 5px;
+        flex-wrap: nowrap; /* 强制不换行 */
+        overflow-x: auto; /* 横向滚动 */
+    }
+    
+    .gem-item {
+        flex: 0 0 calc(16.666% - 2px);
+        min-width: 45px;
+        max-width: 60px;
+        font-size: 0.7em;
+        padding: 6px 2px;
+    }
+    
+    .gem-emoji {
+        font-size: 1.1em;
+    }
+    
+    .gem-count {
+        font-size: 0.85em;
     }
     
     .pokemon-card, .noble-card {
-        min-width: 150px;
+        min-width: 120px;
+        font-size: 0.8em;
+    }
+    
+    .btn {
+        padding: 8px 12px;
+        font-size: 0.85em;
+    }
+    
+    /* 超小屏幕玩家信息 */
+    .player-card {
+        padding: 10px;
+    }
+    
+    .player-card h3 {
+        font-size: 0.9em;
+    }
+    
+    .gem-badge {
+        padding: 2px 4px;
+        font-size: 0.65em;
+        min-width: 30px;
+    }
+    
+    .cards-library-grid-compact {
+        grid-template-columns: repeat(5, 1fr); /* 即使在小屏幕也保持5列 */
+        gap: 3px;
+    }
+    
+    .library-card-compact {
+        padding: 6px;
+        min-height: 80px;
+        font-size: 0.75em;
+    }
+    
+    .library-card-name {
+        font-size: 0.85em;
+    }
+    
+    .cards-library-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    /* 卡牌操作弹窗优化 */
+    .card-action-modal .modal-content {
+        min-width: 90%;
+        padding: 20px;
+    }
+    
+    .modal-buttons {
+        flex-direction: column;
+    }
+    
+    .modal-buttons button {
+        width: 100%;
+    }
+    
+    /* 进化选项优化 */
+    .evolution-options {
+        margin: 15px 0;
+    }
+    
+    .evolution-option {
+        padding: 12px;
+        font-size: 1em;
     }
 }
 
@@ -1054,5 +1410,211 @@ input[type="text"]:focus {
 
 .mini-card strong {
     color: #f1c40f;
+}
+
+/* 信息弹窗样式 */
+.info-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 10000;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.info-modal-content {
+    background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+    border-radius: 15px;
+    max-width: 900px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 50px rgba(0, 0, 0, 0.5);
+    animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-50px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.info-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 30px;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.info-modal-header h2 {
+    margin: 0;
+    color: #f1c40f;
+}
+
+.info-modal-close {
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 2em;
+    cursor: pointer;
+    transition: all 0.3s;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.info-modal-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: rotate(90deg);
+}
+
+.info-modal-body {
+    padding: 30px;
+    color: #ecf0f1;
+    line-height: 1.6;
+}
+
+.info-modal-body h3 {
+    color: #3498db;
+    margin-top: 25px;
+    margin-bottom: 15px;
+    font-size: 1.3em;
+}
+
+.info-modal-body h3:first-child {
+    margin-top: 0;
+}
+
+.info-modal-body ul, .info-modal-body ol {
+    margin: 10px 0 10px 20px;
+}
+
+.info-modal-body li {
+    margin: 8px 0;
+}
+
+.info-modal-body strong {
+    color: #f1c40f;
+}
+
+/* 卡库网格样式 - 紧凑版（5列固定布局）*/
+.cards-library-grid-compact {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr); /* 固定5列 */
+    gap: 8px;
+    margin: 20px 0;
+}
+
+.library-card-compact {
+    background: linear-gradient(135deg, rgba(52, 152, 219, 0.2) 0%, rgba(41, 128, 185, 0.2) 100%);
+    border: 2px solid rgba(52, 152, 219, 0.3);
+    border-radius: 8px;
+    padding: 10px;
+    transition: all 0.3s;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.library-card-compact:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
+    border-color: rgba(52, 152, 219, 0.6);
+}
+
+.library-card-empty {
+    background: transparent;
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.library-card-empty:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+/* 旧版网格样式（备用）*/
+.cards-library-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 15px;
+    margin: 20px 0;
+}
+
+.library-card {
+    background: linear-gradient(135deg, rgba(52, 152, 219, 0.2) 0%, rgba(41, 128, 185, 0.2) 100%);
+    border: 2px solid rgba(52, 152, 219, 0.3);
+    border-radius: 10px;
+    padding: 15px;
+    transition: all 0.3s;
+}
+
+.library-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 5px 20px rgba(52, 152, 219, 0.4);
+    border-color: rgba(52, 152, 219, 0.6);
+}
+
+.library-card-name {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #f1c40f;
+    margin-bottom: 8px;
+}
+
+.library-card-compact .library-card-name {
+    font-size: 0.95em;
+    margin-bottom: 5px;
+}
+
+.library-card-level {
+    display: inline-block;
+    background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+    color: white;
+    padding: 3px 10px;
+    border-radius: 5px;
+    font-size: 0.85em;
+    margin-bottom: 8px;
+}
+
+.library-card-cost,
+.library-card-permanent,
+.library-card-points {
+    font-size: 0.9em;
+    margin: 5px 0;
+    color: #ecf0f1;
+}
+
+.library-card-compact .library-card-cost,
+.library-card-compact .library-card-permanent,
+.library-card-compact .library-card-points {
+    font-size: 0.8em;
+    margin: 3px 0;
+}
+
+.card-evo-info {
+    margin-top: 5px;
+    padding: 4px;
+    background: rgba(46, 204, 113, 0.2);
+    border: 1px solid rgba(46, 204, 113, 0.4);
+    border-radius: 4px;
+    font-size: 0.75em;
+    color: #2ecc71;
+    text-align: center;
+    line-height: 1.2;
 }
 

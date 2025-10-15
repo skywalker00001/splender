@@ -273,16 +273,16 @@ def load_cards_from_csv(csv_path: str) -> List[PokemonCard]:
 class SplendorPokemonGame:
     """璀璨宝石宝可梦游戏"""
     
-    VICTORY_POINTS_GOAL = 18  # 胜利目标18分
     CSV_PATH = os.path.join(os.path.dirname(__file__), 'card_library', 'cards_data.csv')
     
-    def __init__(self, player_names: List[str]):
+    def __init__(self, player_names: List[str], victory_points: int = 18):
         self.players = [Player(name) for name in player_names]
         self.current_player_index = 0
         self.game_over = False
         self.winner = None
         self.final_round_triggered = False
         self.final_round_starter = None
+        self.victory_points_goal = victory_points  # 胜利目标分数
         
         # 初始化球池
         self.ball_pool = self._init_ball_pool()
@@ -502,18 +502,18 @@ class SplendorPokemonGame:
             pass
         else:
             # 不是最后一轮，检查当前玩家分数
-            if player.victory_points >= self.VICTORY_POINTS_GOAL:
-                # 首次触发18分
-                is_player_4 = (current_player_idx == 3)  # 玩家4（索引3）
+            if player.victory_points >= self.victory_points_goal:
+                # 首次触发胜利分数
+                is_last_player = (current_player_idx == len(self.players) - 1)  # 是否是最后一个玩家
                 
-                if is_player_4:
-                    # 玩家4触发18分，游戏直接结束
-                    print(f"{player.name}（玩家4）达到{player.victory_points}分，游戏结束！")
+                if is_last_player:
+                    # 最后一个玩家触发胜利分数，游戏直接结束
+                    print(f"{player.name}（最后玩家）达到{player.victory_points}分，游戏结束！")
                     self.game_over = True
                     self._calculate_final_rankings()
                     return  # 直接结束，不切换玩家
                 else:
-                    # 玩家1/2/3触发18分，进入最后一轮
+                    # 非最后玩家触发胜利分数，进入最后一轮
                     self.final_round_triggered = True
                     self.final_round_starter = current_player_idx
                     print(f"{player.name} 达到{player.victory_points}分！游戏进入最后一轮")
@@ -526,8 +526,8 @@ class SplendorPokemonGame:
         
         # 4. 检查游戏是否结束（最后一轮且回到起始玩家）
         if self.final_round_triggered:
-            # 如果当前玩家是玩家4（索引3），说明已经完成了最后一轮
-            if self.current_player_index == 0:  # 回到玩家1，说明玩家4刚结束
+            # 如果当前玩家回到索引0，说明最后一个玩家已经完成了回合
+            if self.current_player_index == 0:  # 回到第一个玩家，说明最后一个玩家刚结束
                 self.game_over = True
                 self._calculate_final_rankings()
                 print(f"最后一轮结束！游戏结束")

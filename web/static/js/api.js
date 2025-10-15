@@ -129,6 +129,20 @@ class SplendorAPI {
     }
 
     /**
+     * 更新房间配置
+     */
+    async updateRoomConfig(roomId, playerName, maxPlayers, victoryPoints) {
+        return this.request(`/rooms/${roomId}/config`, {
+            method: 'POST',
+            body: JSON.stringify({
+                player_name: playerName,
+                max_players: maxPlayers,
+                victory_points: victoryPoints
+            })
+        });
+    }
+
+    /**
      * 开始游戏
      */
     async startGame(roomId, playerName) {

@@ -604,6 +604,20 @@ class GameUI {
             
             playerCard.innerHTML = titleHTML;
             playerCard.appendChild(playerInfoDiv);
+            
+            // 移动端：点击标题展开/折叠详细信息
+            const title = playerCard.querySelector('h3');
+            title.addEventListener('click', () => {
+                if (window.innerWidth <= 900) {
+                    playerCard.classList.toggle('expanded');
+                }
+            });
+            
+            // 默认只展开自己的卡片（移动端）
+            if (isMe && window.innerWidth <= 900) {
+                playerCard.classList.add('expanded');
+            }
+            
             container.appendChild(playerCard);
         });
     }
@@ -725,6 +739,11 @@ class GameUI {
      */
     updateGameUI(gameState) {
         this.currentGameState = gameState;
+
+        // 更新回合数和胜利目标显示
+        document.getElementById('turn-number').textContent = gameState.turn_number || 1;
+        document.getElementById('victory-goal').textContent = gameState.victory_points || 18;
+        document.getElementById('total-players').textContent = gameState.players?.length || 4;
 
         // 渲染球池
         this.renderBallPool(gameState.ball_pool || {});
