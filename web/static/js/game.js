@@ -246,6 +246,14 @@ class GameUI {
             if (deckSize > 0) {
                 const deckDiv = document.createElement('div');
                 deckDiv.className = 'deck-card';
+                
+                // 检查是否是当前玩家的回合
+                const isMyTurn = this.currentGameState && 
+                                 this.currentGameState.current_player === this.currentPlayerName;
+                if (!isMyTurn) {
+                    deckDiv.classList.add('not-my-turn');
+                }
+                
                 deckDiv.innerHTML = `
                     <div class="deck-emoji">🎴</div>
                     <div class="deck-level">Lv${level}</div>
@@ -319,6 +327,13 @@ class GameUI {
                            (card.rarity === 'legendary' ? 'legendary-card' : 'pokemon-card');
         cardDiv.className = rarityClass;
         cardDiv.dataset.cardData = JSON.stringify(card);
+        
+        // 检查是否是当前玩家的回合，如果不是则添加禁用样式
+        const isMyTurn = this.currentGameState && 
+                         this.currentGameState.current_player === this.currentPlayerName;
+        if (!isMyTurn) {
+            cardDiv.classList.add('not-my-turn');
+        }
 
         // 成本显示
         const costStr = Object.entries(card.cost || {})
@@ -362,6 +377,15 @@ class GameUI {
      * 选择卡牌 - 显示买卡/预购选项
      */
     selectCard(card, element) {
+        // 检查是否是当前玩家的回合
+        const isMyTurn = this.currentGameState && 
+                         this.currentGameState.current_player === this.currentPlayerName;
+        
+        if (!isMyTurn) {
+            // 不是我的回合，不做任何操作
+            return;
+        }
+        
         // 清除之前的选择
         document.querySelectorAll('.pokemon-card.selected, .rare-card.selected, .legendary-card.selected').forEach(el => {
             el.classList.remove('selected');
@@ -518,6 +542,15 @@ class GameUI {
      * 盲预购牌堆顶
      */
     blindReserve(level) {
+        // 检查是否是当前玩家的回合
+        const isMyTurn = this.currentGameState && 
+                         this.currentGameState.current_player === this.currentPlayerName;
+        
+        if (!isMyTurn) {
+            // 不是我的回合，不做任何操作
+            return;
+        }
+        
         if (!confirm(`确定要盲预购Lv${level}牌堆顶的卡牌吗？`)) {
             return;
         }
@@ -626,23 +659,23 @@ class GameUI {
         const nameClass = isCurrentTurn ? 'player-name current-turn' : 'player-name';
         const turnIndicator = isCurrentTurn ? '▶️ ' : '';
 
-        // 球信息
-        const ballBadges = Object.entries(state.balls || {})
-            .filter(([_, count]) => count > 0)
-            .map(([ball, count]) => {
-                const config = BALL_CONFIG[ball];
-                return `<span class="gem-badge ${config?.class || ''}">${config?.emoji || ball} ${count}</span>`;
-            })
-            .join('');
+        // 球信息 - 按固定顺序显示所有颜色（包括0）
+        const ballOrder = ['黑', '粉', '黄', '蓝', '红', '大师球'];
+        const ballBadges = ballOrder.map(ball => {
+            const count = (state.balls || {})[ball] || 0;
+            const config = BALL_CONFIG[ball];
+            const opacity = count === 0 ? 'opacity: 0.3;' : '';
+            return `<span class="gem-badge ${config?.class || ''}" style="${opacity}">${config?.emoji || ball} ${count}</span>`;
+        }).join('');
 
-        // 永久球（折扣）
-        const permanentBadges = Object.entries(state.permanent_balls || {})
-            .filter(([_, count]) => count > 0)
-            .map(([ball, count]) => {
-                const config = BALL_CONFIG[ball];
-                return `<span class="gem-badge ${config?.class || ''}">${config?.emoji || ball} ${count}</span>`;
-            })
-            .join('');
+        // 永久球（折扣）- 按固定顺序显示所有颜色（不包括大师球）
+        const permanentOrder = ['黑', '粉', '黄', '蓝', '红'];
+        const permanentBadges = permanentOrder.map(ball => {
+            const count = (state.permanent_balls || {})[ball] || 0;
+            const config = BALL_CONFIG[ball];
+            const opacity = count === 0 ? 'opacity: 0.3;' : '';
+            return `<span class="gem-badge ${config?.class || ''}" style="${opacity}">${config?.emoji || ball} ${count}</span>`;
+        }).join('');
 
         // 已拥有卡牌
         const cardsDisplay = (state.display_area || [])

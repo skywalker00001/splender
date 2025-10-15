@@ -299,7 +299,7 @@ input[type="text"]:focus {
 
 .game-main {
     display: grid;
-    grid-template-columns: 1fr 350px;
+    grid-template-columns: 1fr 420px;
     gap: 20px;
 }
 
@@ -438,6 +438,26 @@ input[type="text"]:focus {
     border-color: #f1c40f;
 }
 
+/* 不是我的回合时的样式 */
+.pokemon-card.not-my-turn, 
+.noble-card.not-my-turn,
+.rare-card.not-my-turn,
+.legendary-card.not-my-turn,
+.deck-card.not-my-turn {
+    cursor: not-allowed;
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.pokemon-card.not-my-turn:hover, 
+.noble-card.not-my-turn:hover,
+.rare-card.not-my-turn:hover,
+.legendary-card.not-my-turn:hover,
+.deck-card.not-my-turn:hover {
+    transform: none;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
 .card-name {
     font-size: 1.1em;
     font-weight: bold;
@@ -514,11 +534,14 @@ input[type="text"]:focus {
 }
 
 .gem-badge {
-    padding: 5px 10px;
-    border-radius: 5px;
+    padding: 4px 8px;
+    border-radius: 4px;
     font-size: 0.85em;
     font-weight: bold;
     color: white;
+    white-space: nowrap;
+    min-width: 45px;
+    text-align: center;
 }
 
 .card-list {
@@ -843,6 +866,20 @@ input[type="text"]:focus {
     background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
 }
 
+/* 持有球区域样式 */
+.player-balls {
+    margin: 10px 0;
+    padding: 10px;
+    background: rgba(52, 152, 219, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(52, 152, 219, 0.3);
+}
+
+.player-balls h4 {
+    color: #3498db;
+    margin-bottom: 8px;
+}
+
 /* 永久折扣区域样式 */
 .player-permanent {
     margin: 10px 0;
@@ -888,8 +925,9 @@ input[type="text"]:focus {
 /* 球列表优化 */
 .ball-list {
     display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
+    flex-wrap: nowrap;
+    gap: 3px;
+    overflow-x: auto;
 }
 
 /* 卡牌操作弹窗 */

@@ -693,7 +693,7 @@ def reserve_card(room_id):
             deck_name = f"deck_lv{level}"
             deck = getattr(room.game, deck_name, [])
             if deck:
-                target_card = deck[0]  # 牌堆顶
+                target_card = deck.pop(0)  # 从牌堆顶移除卡牌
             else:
                 return jsonify({"error": f"Lv{level}牌堆已空"}), 400
         else:
