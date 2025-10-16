@@ -45,7 +45,7 @@
                     </div>
                     
                     <div class="players-waiting">
-                        <h3>玩家列表 (<span id="player-count">0</span>/4)</h3>
+                        <h3>玩家列表 (<span id="player-count">0/4</span>)</h3>
                         <ul id="players-list"></ul>
                     </div>
                     
@@ -66,7 +66,6 @@
                                 <input type="number" id="victory-points-input" value="18" min="10" max="30" style="width: 80px; padding: 5px;">
                             </label>
                         </div>
-                        <button id="update-config-btn" class="btn btn-secondary">更新配置</button>
                     </div>
                     
                     <div class="bot-controls">
@@ -112,8 +111,8 @@
                             当前玩家: <span id="current-player-name"></span>
                         </h2>
                         <div style="margin-top: 8px; font-size: 0.9em; opacity: 0.8;">
-                            胜利目标: <span id="victory-goal">18</span>分 | 
-                            玩家数: <span id="total-players">4</span>人
+                            胜利目标: <span id="victory-goal">-</span>分 | 
+                            玩家数: <span id="total-players">-</span>人
                         </div>
                         <!-- AI控制面板 -->
                         <div id="ai-control-panel" class="ai-control-panel" style="display: none;">
@@ -145,6 +144,23 @@
                             </div>
                         </div>
 
+                        <!-- 稀有/传说卡牌 - 移到前面显示 -->
+                        <div class="card">
+                            <h3>🌟 稀有/传说卡牌</h3>
+                            <div id="special-cards" class="special-cards-container">
+                                <div class="special-slot">
+                                    <h4>⭐ 稀有(Lv4)</h4>
+                                    <div id="rare-card-display"></div>
+                                    <div id="rare-deck-info" class="deck-info"></div>
+                                </div>
+                                <div class="special-slot">
+                                    <h4>🌟 传说(Lv5)</h4>
+                                    <div id="legendary-card-display"></div>
+                                    <div id="legendary-deck-info" class="deck-info"></div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- 桌面卡牌 -->
                         <div class="card">
                             <h3>🎴 桌面卡牌</h3>
@@ -160,23 +176,6 @@
                                 <div class="tier-row">
                                     <h4>等级 1</h4>
                                     <div id="tier-1-cards" class="card-row"></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 稀有/传说卡牌 -->
-                        <div class="card">
-                            <h3>🌟 稀有/传说卡牌</h3>
-                            <div id="special-cards" class="special-cards-container">
-                                <div class="special-slot">
-                                    <h4>⭐ 稀有(Lv4)</h4>
-                                    <div id="rare-card-display"></div>
-                                    <div id="rare-deck-info" class="deck-info"></div>
-                                </div>
-                                <div class="special-slot">
-                                    <h4>🌟 传说(Lv5)</h4>
-                                    <div id="legendary-card-display"></div>
-                                    <div id="legendary-deck-info" class="deck-info"></div>
                                 </div>
                             </div>
                         </div>

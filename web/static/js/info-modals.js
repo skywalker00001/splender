@@ -5,14 +5,14 @@
 // 游戏规则内容
 const GAME_RULES = `
 <h3>🎯 游戏目标</h3>
-<p>收集宝可梦卡牌，率先达到<strong>胜利分数</strong>（默认18分）即可获胜！</p>
+<p>收集宝可梦卡牌，总分数⭐率先达到<strong>胜利分数</strong>（默认18分）即可获胜！</p>
 
 <h3>⚡ 回合流程</h3>
 <p>每个回合，你必须选择以下<strong>3个动作之一</strong>：</p>
 <ol>
     <li><strong>拿球</strong>：从球池拿取精灵球
         <ul>
-            <li>同色2个：需要球池中该颜色≥4个</li>
+            <li>同色2个：需要拿之前球池中该颜色≥4个</li>
             <li>不同色3个：拿3种不同颜色各1个</li>
             <li>持球上限10个，超过需放回</li>
         </ul>
@@ -21,7 +21,7 @@ const GAME_RULES = `
         <ul>
             <li>消耗精灵球换取卡牌</li>
             <li>获得分数和永久折扣</li>
-            <li>大师球(🟣)可替代任意颜色</li>
+            <li>大师球(🟣)可替代任意颜色球1个(赖子)</li>
         </ul>
     </li>
     <li><strong>预购</strong>：预定卡牌到手牌（最多3张）
@@ -34,11 +34,11 @@ const GAME_RULES = `
 </ol>
 
 <h3>🔄 进化系统</h3>
-<p>完成动作后，可以选择进化1张卡牌：</p>
+<p>完成回合后，可以最多选择进化1张拥有的卡牌：</p>
 <ul>
     <li>1级→2级→3级的进化链</li>
     <li>需要场上或预购区有进化目标</li>
-    <li>消耗<strong>永久折扣</strong>（不消耗手中的球）</li>
+    <li>需要满足特定颜色的<strong>永久折扣</strong>数量要求（不是消耗手中的球）</li>
     <li>每回合最多进化1次</li>
 </ul>
 
@@ -127,8 +127,9 @@ async function showCardsModal() {
         // 生成HTML - 按颜色列排列
         let html = '';
         const colorOrder = ['黑', '粉', '黄', '蓝', '红'];
+        const levelOrder = [5, 4, 3, 2, 1]; // L5 → L4 → L3 → L2 → L1
         
-        for (let level = 1; level <= 5; level++) {
+        for (const level of levelOrder) {
             const levelCards = cardsByLevelAndColor[level];
             
             // 计算该等级总卡数

@@ -60,6 +60,7 @@ class Player:
         self.reserved_cards: List[PokemonCard] = []  # 手牌（预定的卡）
         self.victory_points = 0
         self.has_evolved_this_turn = False  # 本回合是否已进化
+        self.needs_return_balls = False  # 是否需要放回球（超过10个）
         
     def get_permanent_balls(self) -> Dict[BallType, int]:
         """获取展示区永久球数量"""
@@ -354,6 +355,62 @@ class SplendorPokemonGame:
         """获取当前玩家"""
         return self.players[self.current_player_index]
     
+    def _check_ball_limit_after_action(self):
+        """检查并处理10球上限"""
+        player = self.get_current_player()
+        
+        # 如果玩家球数超过10个
+        if player.get_total_balls() > 10:
+            # AI玩家自动弃球
+            if "机器人" in player.name:
+                def return_balls_to_pool(ball_type, amount):
+                    self.ball_pool[ball_type] += amount
+                player.check_ball_limit(return_balls_to_pool)
+                print(f"🤖 {player.name} 球数超过10个，已自动弃球")
+            # 人类玩家需要手动选择放回
+            else:
+                player.needs_return_balls = True
+                print(f"⚠️ {player.name} 球数超过10个({player.get_total_balls()})，需要手动放回{player.get_total_balls() - 10}个球")
+    
+    def return_balls(self, balls_to_return: Dict[BallType, int]) -> bool:
+        """玩家手动放回球（超过10个时）"""
+        player = self.get_current_player()
+        
+        # 检查是否需要放回球
+        if not player.needs_return_balls:
+            return False
+        
+        total_balls = player.get_total_balls()
+        if total_balls <= 10:
+            player.needs_return_balls = False
+            return False
+        
+        # 计算需要放回的数量
+        needed_return = total_balls - 10
+        actual_return = sum(balls_to_return.values())
+        
+        # 检查放回数量是否正确
+        if actual_return != needed_return:
+            print(f"❌ 放回数量不正确：需要放回{needed_return}个，实际{actual_return}个")
+            return False
+        
+        # 检查玩家是否有足够的球
+        for ball_type, amount in balls_to_return.items():
+            if amount > 0 and player.balls.get(ball_type, 0) < amount:
+                print(f"❌ {ball_type.value}球不足：需要{amount}个，只有{player.balls.get(ball_type, 0)}个")
+                return False
+        
+        # 执行放回
+        for ball_type, amount in balls_to_return.items():
+            if amount > 0:
+                player.balls[ball_type] -= amount
+                self.ball_pool[ball_type] += amount
+                print(f"  放回 {ball_type.value} × {amount}")
+        
+        player.needs_return_balls = False
+        print(f"✅ {player.name} 成功放回{actual_return}个球，当前球数：{player.get_total_balls()}")
+        return True
+    
     def take_balls(self, ball_types: List[BallType]) -> bool:
         """拿取球"""
         player = self.get_current_player()
@@ -369,6 +426,9 @@ class SplendorPokemonGame:
             for ball in ball_types:
                 self.ball_pool[ball] -= 1
                 player.balls[ball] += 1
+            
+            # 检查球数上限（拿球后可能超过10个）
+            self._check_ball_limit_after_action()
             return True
         
         # 规则2：拿2个同色（该颜色余量须≥4）
@@ -381,6 +441,9 @@ class SplendorPokemonGame:
             # 执行
             self.ball_pool[ball] -= 2
             player.balls[ball] += 2
+            
+            # 检查球数上限（拿球后可能超过10个）
+            self._check_ball_limit_after_action()
             return True
         
         return False
@@ -413,6 +476,8 @@ class SplendorPokemonGame:
                     cards.append(deck.pop())
                 break
         
+        # 检查球数上限（预购获得大师球后可能超过10个）
+        self._check_ball_limit_after_action()
         return True
     
     def buy_card(self, card: PokemonCard) -> bool:

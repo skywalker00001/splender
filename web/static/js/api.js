@@ -213,6 +213,19 @@ class SplendorAPI {
     }
 
     /**
+     * 放回球（超过10个时）
+     */
+    async returnBalls(roomId, playerName, ballsToReturn) {
+        return this.request(`/rooms/${roomId}/return_balls`, {
+            method: 'POST',
+            body: JSON.stringify({
+                player_name: playerName,
+                balls_to_return: ballsToReturn
+            })
+        });
+    }
+
+    /**
      * 结束回合
      */
     async endTurn(roomId, playerName) {

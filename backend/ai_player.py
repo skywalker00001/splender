@@ -169,10 +169,26 @@ class AIPlayer:
         
         # 优先级4: 智能拿球
         balls = self._get_smart_balls(game, player)
-        return {
-            "action": "take_balls",
-            "data": {"ball_types": [b.value for b in balls]}
-        }
+        if balls:
+            return {
+                "action": "take_balls",
+                "data": {"ball_types": [b.value for b in balls]}
+            }
+        
+        # 兜底：如果实在没有球可拿，尝试盲预购
+        if len(player.reserved_cards) < 3:
+            # 盲预购一张Lv1卡
+            return {
+                "action": "reserve_card",
+                "data": {
+                    "level": 1,
+                    "blind": True
+                }
+            }
+        
+        # 最后的兜底：空过回合（不应该发生）
+        print(f"警告：AI玩家 {player.name} 无法决策，跳过回合")
+        return None
     
     def _hard_strategy(self, game: SplendorPokemonGame, player: Player) -> Dict:
         """困难策略 - 高级AI决策"""
@@ -180,7 +196,8 @@ class AIPlayer:
         # 计算当前局势
         leader_points = max([p.victory_points for p in game.players])
         my_points = player.victory_points
-        is_close_to_win = my_points >= 15  # 新版本目标是18分
+        # 接近胜利定义为达到目标分数的80%以上（动态计算）
+        is_close_to_win = my_points >= (game.victory_points_goal * 0.8)
         
         # 如果接近胜利，优先购买高分卡
         if is_close_to_win:
@@ -227,10 +244,26 @@ class AIPlayer:
         
         # 最优球选择
         balls = self._get_optimal_balls(game, player)
-        return {
-            "action": "take_balls",
-            "data": {"ball_types": [b.value for b in balls]}
-        }
+        if balls:
+            return {
+                "action": "take_balls",
+                "data": {"ball_types": [b.value for b in balls]}
+            }
+        
+        # 兜底：如果实在没有球可拿，尝试盲预购
+        if len(player.reserved_cards) < 3:
+            # 盲预购一张Lv2卡（困难模式更激进）
+            return {
+                "action": "reserve_card",
+                "data": {
+                    "level": 2,
+                    "blind": True
+                }
+            }
+        
+        # 最后的兜底：空过回合（不应该发生）
+        print(f"警告：AI玩家 {player.name} 无法决策，跳过回合")
+        return None
     
     # ===== 辅助方法 =====
     

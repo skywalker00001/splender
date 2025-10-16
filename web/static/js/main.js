@@ -8,6 +8,53 @@ let playerName = null;
 let isCreator = false;
 let roomPollingInterval = null;
 
+// localStorage 键名
+const STORAGE_KEY = 'splendor_game_session';
+
+/**
+ * 保存游戏会话到localStorage
+ */
+function saveGameSession(roomId, playerName) {
+    const session = {
+        roomId: roomId,
+        playerName: playerName,
+        timestamp: Date.now()
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+}
+
+/**
+ * 获取游戏会话
+ */
+function getGameSession() {
+    try {
+        const data = localStorage.getItem(STORAGE_KEY);
+        if (!data) return null;
+        
+        const session = JSON.parse(data);
+        const now = Date.now();
+        const twoHours = 2 * 60 * 60 * 1000;
+        
+        // 超过2小时的会话失效
+        if (now - session.timestamp > twoHours) {
+            clearGameSession();
+            return null;
+        }
+        
+        return session;
+    } catch (error) {
+        console.error('读取游戏会话失败:', error);
+        return null;
+    }
+}
+
+/**
+ * 清除游戏会话
+ */
+function clearGameSession() {
+    localStorage.removeItem(STORAGE_KEY);
+}
+
 /**
  * 切换屏幕
  */
@@ -57,6 +104,114 @@ async function initApp() {
 
     // 绑定事件监听器
     bindEventListeners();
+    
+    // 检查是否有未完成的游戏
+    await checkUnfinishedGame();
+}
+
+/**
+ * 检查未完成的游戏
+ */
+async function checkUnfinishedGame() {
+    const session = getGameSession();
+    if (!session) return;
+    
+    try {
+        // 验证房间是否还存在
+        const state = await api.getGameState(session.roomId);
+        
+        // 房间不存在或游戏已结束
+        if (!state || state.status === 'finished' || state.game_over) {
+            clearGameSession();
+            return;
+        }
+        
+        // 检查玩家是否还在房间中
+        if (!state.players || !state.players.includes(session.playerName)) {
+            clearGameSession();
+            return;
+        }
+        
+        // 显示重连弹窗
+        showReconnectModal(session, state);
+        
+    } catch (error) {
+        // 房间不存在或出错，清除会话
+        console.log('检查游戏会话失败:', error);
+        clearGameSession();
+    }
+}
+
+/**
+ * 显示重连弹窗
+ */
+function showReconnectModal(session, gameState) {
+    const modal = document.createElement('div');
+    modal.className = 'card-action-modal';
+    modal.style.zIndex = '10000';
+    
+    const statusText = gameState.status === 'waiting' ? '等待中' : '进行中';
+    const playerCount = gameState.players?.length || 0;
+    const maxPlayers = gameState.max_players || 4;
+    
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 450px;">
+            <h3>🎮 检测到未完成的游戏</h3>
+            <div style="margin: 20px 0; padding: 15px; background: rgba(0,0,0,0.3); border-radius: 8px;">
+                <p style="margin: 8px 0;"><strong>房间号：</strong>${session.roomId}</p>
+                <p style="margin: 8px 0;"><strong>玩家名：</strong>${session.playerName}</p>
+                <p style="margin: 8px 0;"><strong>状态：</strong>${statusText}</p>
+                <p style="margin: 8px 0;"><strong>玩家数：</strong>${playerCount}/${maxPlayers}</p>
+            </div>
+            <p style="color: #f1c40f; margin-bottom: 15px;">
+                ${gameState.status === 'waiting' ? '游戏尚未开始' : '游戏正在进行中'}
+            </p>
+            <div class="modal-buttons">
+                <button id="continue-game-btn" class="btn btn-primary">
+                    ✅ 继续游戏
+                </button>
+                <button id="new-game-btn" class="btn btn-secondary">
+                    🆕 开始新游戏
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // 绑定事件
+    document.getElementById('continue-game-btn').addEventListener('click', () => {
+        document.body.removeChild(modal);
+        reconnectToGame(session, gameState);
+    });
+    
+    document.getElementById('new-game-btn').addEventListener('click', () => {
+        document.body.removeChild(modal);
+        clearGameSession();
+        showToast('已清除上次游戏记录，可以开始新游戏', 'info');
+    });
+}
+
+/**
+ * 重连到游戏
+ */
+async function reconnectToGame(session, gameState) {
+    currentRoom = session.roomId;
+    playerName = session.playerName;
+    
+    if (gameState.status === 'waiting') {
+        // 游戏还在等待，进入房间界面
+        // 检查是否是房主
+        isCreator = (gameState.creator_name === playerName);
+        showRoomScreen();
+        startRoomPolling();
+        showToast('已重新连接到房间', 'success');
+    } else if (gameState.status === 'playing') {
+        // 游戏进行中，直接进入游戏界面
+        switchScreen('game-screen');
+        gameUI.startPolling(currentRoom, playerName);
+        showToast('已重新连接到游戏', 'success');
+    }
 }
 
 /**
@@ -93,6 +248,9 @@ function bindEventListeners() {
     
     // 游戏结束界面
     document.getElementById('back-to-lobby-btn').addEventListener('click', () => {
+        // 清除游戏会话
+        clearGameSession();
+        
         switchScreen('lobby-screen');
         resetGame();
     });
@@ -121,6 +279,9 @@ async function handleCreateRoom() {
         const result = await api.createRoom(playerName);
         currentRoom = result.room_id;
         isCreator = true;
+        
+        // 保存游戏会话
+        saveGameSession(currentRoom, playerName);
         
         showToast('房间创建成功！', 'success');
         showRoomScreen();
@@ -163,10 +324,11 @@ async function loadRoomsList() {
         result.rooms.forEach(room => {
             const roomDiv = document.createElement('div');
             roomDiv.className = 'room-item';
+            const maxPlayers = room.max_players || 4;  // 默认4人，兼容旧数据
             roomDiv.innerHTML = `
                 <div class="room-item-info">
                     <strong>房间号: ${room.room_id}</strong><br>
-                    <span>房主: ${room.creator} | 玩家: ${room.player_count}/4</span>
+                    <span>房主: ${room.creator} | 玩家: ${room.player_count}/${maxPlayers}</span>
                 </div>
                 <button class="btn btn-primary btn-small" onclick="joinRoom('${room.room_id}')">加入</button>
             `;
@@ -185,6 +347,9 @@ window.joinRoom = async function(roomId) {
         await api.joinRoom(roomId, playerName);
         currentRoom = roomId;
         isCreator = false;
+        
+        // 保存游戏会话
+        saveGameSession(currentRoom, playerName);
         
         showToast('成功加入房间！', 'success');
         showRoomScreen();
@@ -272,21 +437,27 @@ async function updateRoomInfo() {
         });
         
         // 更新玩家计数显示
-        const maxPlayers = state.max_players || 4;
-        const victoryPoints = state.victory_points || 18;
+        const maxPlayers = state.max_players || 4;  // 后端应该总是返回，这里只是兜底
+        const victoryPoints = state.victory_points || 18;  // 后端应该总是返回，这里只是兜底
         document.getElementById('player-count').textContent = `${state.players.length}/${maxPlayers}`;
         
         // 显示/隐藏配置面板（仅房主可见）
         const configPanel = document.getElementById('game-config-panel');
+        const maxPlayersSelect = document.getElementById('max-players-select');
+        const victoryPointsInput = document.getElementById('victory-points-input');
+        
         if (isCreator) {
             configPanel.style.display = 'block';
-            document.getElementById('max-players-select').value = maxPlayers;
-            document.getElementById('victory-points-input').value = victoryPoints;
+            // 只在未被用户修改时更新（检查是否聚焦）
+            if (document.activeElement !== maxPlayersSelect && document.activeElement !== victoryPointsInput) {
+                maxPlayersSelect.value = maxPlayers;
+                victoryPointsInput.value = victoryPoints;
+            }
         } else {
             configPanel.style.display = 'none';
         }
         
-        // 更新开始游戏按钮
+        // 更新开始游戏按钮 - 必须达到设置的人数才能开始
         const startBtn = document.getElementById('start-game-btn');
         if (isCreator && state.players.length === maxPlayers) {
             startBtn.disabled = false;
@@ -401,12 +572,19 @@ async function handleLeaveRoom() {
         const result = await api.leaveRoom(currentRoom, playerName);
         showToast(result.message, 'info');
         
+        // 清除游戏会话
+        clearGameSession();
+        
         stopRoomPolling();
         switchScreen('lobby-screen');
         resetGame();
     } catch (error) {
         // 即使出错也返回大厅
         console.error('离开房间失败:', error);
+        
+        // 清除游戏会话
+        clearGameSession();
+        
         stopRoomPolling();
         switchScreen('lobby-screen');
         resetGame();
@@ -426,6 +604,9 @@ async function handleDeleteRoom() {
         await api.deleteRoom(currentRoom, playerName);
         showToast('房间已删除', 'success');
         
+        // 清除游戏会话
+        clearGameSession();
+        
         stopRoomPolling();
         switchScreen('lobby-screen');
         resetGame();
@@ -441,6 +622,9 @@ async function handleDeleteRoom() {
  */
 function handleQuitGame() {
     if (confirm('确定要退出游戏吗？')) {
+        // 清除游戏会话
+        clearGameSession();
+        
         gameUI.stopPolling();
         switchScreen('lobby-screen');
         resetGame();
@@ -466,14 +650,37 @@ document.addEventListener('DOMContentLoaded', initApp);
 
 
 
-// 更新配置按钮事件
-document.getElementById('update-config-btn')?.addEventListener('click', async () => {
-    const maxPlayers = parseInt(document.getElementById('max-players-select').value);
+// 自动保存配置 - 当玩家数量或胜利分数改变时
+document.getElementById('max-players-select')?.addEventListener('change', async (e) => {
+    if (!currentRoom) return;
+    
+    const maxPlayers = parseInt(e.target.value);
     const victoryPoints = parseInt(document.getElementById('victory-points-input').value);
     
     try {
-        const response = await api.updateRoomConfig(currentRoom, playerName, maxPlayers, victoryPoints);
-        showToast(`配置已更新：${maxPlayers}人，${victoryPoints}分胜利`, 'success');
+        await api.updateRoomConfig(currentRoom, playerName, maxPlayers, victoryPoints);
+        showToast(`玩家数量已更新为${maxPlayers}人`, 'success');
+    } catch (error) {
+        showToast('更新配置失败: ' + error.message, 'error');
+    }
+});
+
+document.getElementById('victory-points-input')?.addEventListener('change', async (e) => {
+    if (!currentRoom) return;
+    
+    const maxPlayers = parseInt(document.getElementById('max-players-select').value);
+    const victoryPoints = parseInt(e.target.value);
+    
+    // 验证范围
+    if (victoryPoints < 10 || victoryPoints > 30) {
+        showToast('胜利分数必须在10-30之间', 'error');
+        e.target.value = 18; // 重置为默认值
+        return;
+    }
+    
+    try {
+        await api.updateRoomConfig(currentRoom, playerName, maxPlayers, victoryPoints);
+        showToast(`胜利分数已更新为${victoryPoints}分`, 'success');
     } catch (error) {
         showToast('更新配置失败: ' + error.message, 'error');
     }

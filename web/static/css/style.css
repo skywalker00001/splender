@@ -653,16 +653,32 @@ input[type="text"]:focus {
     .player-card.expanded .player-reserved {
         display: block;
     }
+    
+    /* 自己的玩家卡片始终显示所有信息 */
+    .player-card.my-player .player-cards,
+    .player-card.my-player .player-reserved {
+        display: block !important;
+    }
 }
 
-/* 平板竖屏 */
+/* 平板竖屏 - 特殊两列布局 */
 @media (max-width: 900px) {
     .game-main {
-        grid-template-columns: 1fr; /* 单列布局 */
+        display: grid;
+        grid-template-columns: 1fr 280px; /* 左侧卡牌区，右侧玩家栏 */
+        gap: 10px;
+    }
+    
+    .game-left {
+        order: 0;
     }
     
     .game-right {
-        order: 1; /* 玩家信息在游戏区域之后 */
+        order: 1;
+        position: sticky;
+        top: 10px;
+        max-height: calc(100vh - 20px);
+        overflow-y: auto;
     }
     
     /* 默认隐藏详细信息 */
@@ -673,6 +689,23 @@ input[type="text"]:focus {
     .player-card.expanded .player-cards,
     .player-card.expanded .player-reserved {
         display: block !important;
+    }
+    
+    /* 自己的玩家卡片始终显示所有信息 */
+    .player-card.my-player .player-cards,
+    .player-card.my-player .player-reserved {
+        display: block !important;
+    }
+    
+    /* 紧凑显示卡牌区域 */
+    .special-cards-container {
+        display: flex;
+        flex-direction: row;
+        gap: 10px;
+    }
+    
+    .special-slot {
+        flex: 1;
     }
 }
 
@@ -770,15 +803,24 @@ input[type="text"]:focus {
     }
     
     .player-card h3::after {
-        content: " 👆点击展开";
+        content: " 👆点击查看卡牌";
         font-size: 0.75em;
-        opacity: 0.6;
+        opacity: 0.8;
         font-weight: normal;
+        color: #f1c40f;
     }
     
     .player-card.expanded h3::after {
         content: " 👇点击收起";
         font-size: 0.75em;
+        opacity: 0.8;
+        color: #f1c40f;
+    }
+    
+    /* 自己的玩家卡片不需要提示（始终展开） */
+    .player-card.my-player h3::after {
+        content: " 👤";
+        opacity: 1;
     }
     
     .player-stats {
@@ -857,13 +899,14 @@ input[type="text"]:focus {
     }
     
     .cards-library-grid-compact {
-        grid-template-columns: repeat(5, 1fr); /* 保持5列 */
-        gap: 5px;
+        grid-template-columns: repeat(3, minmax(150px, 1fr)); /* 平板改为3列 */
+        gap: 8px;
     }
     
     .library-card-compact {
-        padding: 8px;
-        min-height: 100px;
+        padding: 10px;
+        min-height: 120px;
+        min-width: 150px;
         font-size: 0.85em;
     }
     
@@ -964,13 +1007,14 @@ input[type="text"]:focus {
     }
     
     .cards-library-grid-compact {
-        grid-template-columns: repeat(5, 1fr); /* 即使在小屏幕也保持5列 */
-        gap: 3px;
+        grid-template-columns: repeat(2, minmax(140px, 1fr)); /* 手机改为2列 */
+        gap: 6px;
     }
     
     .library-card-compact {
-        padding: 6px;
-        min-height: 80px;
+        padding: 8px;
+        min-height: 100px;
+        min-width: 140px;
         font-size: 0.75em;
     }
     
@@ -1412,6 +1456,91 @@ input[type="text"]:focus {
     color: #f1c40f;
 }
 
+/* 可点击的预购卡牌样式 */
+.mini-card-clickable {
+    cursor: pointer;
+    border: 2px solid rgba(241, 196, 15, 0.3);
+    transition: all 0.3s;
+}
+
+.mini-card-clickable:hover {
+    background: rgba(241, 196, 15, 0.2);
+    border-color: rgba(241, 196, 15, 0.8);
+    transform: translateX(5px) scale(1.02);
+    box-shadow: 0 2px 8px rgba(241, 196, 15, 0.3);
+}
+
+/* 放回球UI样式 */
+.ball-selection-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.ball-item {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 10px;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.ball-item .ball-emoji {
+    font-size: 2em;
+    margin-bottom: 5px;
+}
+
+.ball-item .ball-name {
+    font-size: 0.85em;
+    color: #bbb;
+    margin-bottom: 5px;
+}
+
+.ball-item .ball-count {
+    font-size: 1.2em;
+    font-weight: bold;
+    color: #f1c40f;
+}
+
+.ball-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 5px;
+}
+
+.ball-increase-btn,
+.ball-decrease-btn {
+    background: rgba(52, 152, 219, 0.3);
+    border: 1px solid rgba(52, 152, 219, 0.5);
+    color: white;
+    width: 30px;
+    height: 30px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: all 0.2s;
+}
+
+.ball-increase-btn:hover:not(:disabled),
+.ball-decrease-btn:hover:not(:disabled) {
+    background: rgba(52, 152, 219, 0.6);
+    border-color: rgba(52, 152, 219, 0.8);
+    transform: scale(1.1);
+}
+
+.ball-increase-btn:disabled,
+.ball-decrease-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.ball-controls .ball-count {
+    min-width: 30px;
+    font-size: 1.1em;
+}
+
 /* 信息弹窗样式 */
 .info-modal {
     display: none;
@@ -1430,8 +1559,8 @@ input[type="text"]:focus {
 .info-modal-content {
     background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
     border-radius: 15px;
-    max-width: 900px;
-    width: 100%;
+    max-width: 1200px; /* 增加宽度以容纳5列卡牌 */
+    width: 95%;
     max-height: 90vh;
     overflow-y: auto;
     box-shadow: 0 10px 50px rgba(0, 0, 0, 0.5);
@@ -1514,18 +1643,20 @@ input[type="text"]:focus {
 /* 卡库网格样式 - 紧凑版（5列固定布局）*/
 .cards-library-grid-compact {
     display: grid;
-    grid-template-columns: repeat(5, 1fr); /* 固定5列 */
-    gap: 8px;
+    grid-template-columns: repeat(5, minmax(180px, 1fr)); /* 固定5列，最小宽度180px */
+    gap: 10px;
     margin: 20px 0;
+    overflow-x: auto; /* 如果太窄会出现横向滚动条 */
 }
 
 .library-card-compact {
     background: linear-gradient(135deg, rgba(52, 152, 219, 0.2) 0%, rgba(41, 128, 185, 0.2) 100%);
     border: 2px solid rgba(52, 152, 219, 0.3);
     border-radius: 8px;
-    padding: 10px;
+    padding: 12px;
     transition: all 0.3s;
-    min-height: 120px;
+    min-height: 140px;
+    min-width: 180px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
