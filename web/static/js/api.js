@@ -226,7 +226,7 @@ class SplendorAPI {
     }
 
     /**
-     * 结束回合
+     * 结束行动
      */
     async endTurn(roomId, playerName) {
         return this.request(`/rooms/${roomId}/end_turn`, {

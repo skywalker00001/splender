@@ -900,7 +900,7 @@ async function handleDeleteRoom() {
     }
 }
 
-// 拿取球和结束回合已移至game.js中的gameUI对象
+// 拿取球和结束行动已移至game.js中的gameUI对象
 
 /**
  * 退出游戏

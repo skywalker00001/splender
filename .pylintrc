@@ -1,0 +1,10 @@
+[MASTER]
+# 忽略无法解析的导入警告
+extension-pkg-whitelist=flask,flask_cors
+
+[MESSAGES CONTROL]
+# 禁用特定警告
+disable=
+    import-error,
+    no-name-in-module
+

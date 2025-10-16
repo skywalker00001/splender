@@ -1455,27 +1455,30 @@ select {
         gap: 10px;
     }
     
-    /* 稀有/传说卡牌 - 移动端改回纵向 */
+    /* 稀有/传说卡牌 - 移动端也保持横向排列 */
     .special-cards-container {
-        flex-direction: column !important; /* 移动端纵向排列 */
-        gap: 15px;
-        flex-wrap: wrap !important;
+        flex-direction: row !important; /* 移动端也保持横向 */
+        gap: 12px;
+        flex-wrap: nowrap !important;
+        overflow-x: auto; /* 横向滚动 */
     }
     
     .special-slot {
-        width: 100% !important; /* 移动端占满宽度 */
-        max-width: 100% !important;
-        display: flex !important;
+        width: auto !important; /* 移动端自适应内容 */
+        max-width: none !important;
+        display: inline-flex !important;
+        flex-shrink: 0; /* 不压缩 */
     }
     
     .special-slot-content {
-    flex-direction: column;
-        gap: 15px;
-        width: 100%;
+        flex-direction: row; /* 移动端也保持横向：牌堆+卡牌 */
+        gap: 10px;
+        width: auto;
     }
     
     .special-slot-content .deck-info {
-        width: 100%;
+        width: 80px; /* 移动端缩小牌堆信息宽度 */
+        font-size: 0.85em;
     }
     
     /* 玩家信息 */

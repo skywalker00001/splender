@@ -42,6 +42,9 @@ class GameUI {
         this.hasPerformedMainAction = false;  // 是否已执行主要操作（买/拿/预购）
         this.hasPerformedEvolution = false;  // 是否已进化
         this.ballsToReturn = {};  // 选择要放回的球 {球类型: 数量}
+        this.waitingForReturnBalls = false;  // 是否在等待放回球
+        this.currentActionSteps = [];  // 记录当前行动的所有步骤
+        this.lastActionPlayer = null;  // 上一个行动的玩家，用于检测行动切换
     }
 
     /**
@@ -586,6 +589,9 @@ class GameUI {
             .then(response => {
                 if (response.success) {
                     showToast('购买成功！', 'success');
+                    // 记录动作
+                    this.currentActionSteps.push(`💰 购买卡牌: ${card.name} (Lv${card.level}, ${card.victory_points}VP)`);
+                    
                     this.selectedCard = null;
                     this.hasPerformedMainAction = true;
                     this.checkAndShowEvolution();
@@ -607,9 +613,12 @@ class GameUI {
             .then(response => {
                 if (response.success) {
                     showToast('预购成功！', 'success');
+                    // 记录动作
+                    this.currentActionSteps.push(`📦 预购卡牌: ${card.name} (Lv${card.level})`);
+                    
                     this.selectedCard = null;
                     this.hasPerformedMainAction = true;
-                    this.checkAndShowEvolution();
+                    this.waitingForReturnBalls = true;  // 预购会送大师球，可能需要放回
                 } else {
                     showToast(response.error || '预购失败', 'error');
                 }
@@ -640,9 +649,12 @@ class GameUI {
             .then(response => {
                 if (response.success) {
                     showToast('盲预购成功！', 'success');
+                    // 记录动作
+                    this.currentActionSteps.push(`📦 盲预购: Lv${level}牌堆顶`);
+                    
                     this.clearBallSelection();
                     this.hasPerformedMainAction = true;
-                    this.checkAndShowEvolution();
+                    this.waitingForReturnBalls = true;  // 预购会送大师球，可能需要放回
                 } else {
                     showToast(response.error || '盲预购失败', 'error');
                 }
@@ -864,6 +876,23 @@ class GameUI {
     updateGameUI(gameState) {
         this.currentGameState = gameState;
 
+        // 检测行动切换，显示上一个玩家的行动总结
+        if (this.lastActionPlayer && this.lastActionPlayer !== gameState.current_player) {
+            // 行动切换了，显示上一个玩家的行动总结
+            const isMyAction = this.lastActionPlayer === this.currentPlayerName;
+            
+            // 只有当上一个行动不是我的时候才显示总结（我的行动在autoEndAction中已经显示了）
+            if (!isMyAction) {
+                // 其他玩家（包括AI）的行动结束，显示详细总结
+                // 从游戏状态中获取上一个玩家的行动记录
+                this.showActionEndNotificationForOthers(this.lastActionPlayer, gameState);
+            }
+            
+            // 清空步骤记录
+            this.clearActionSteps();
+        }
+        this.lastActionPlayer = gameState.current_player;
+
         // 更新回合数和胜利目标显示
         document.getElementById('turn-number').textContent = gameState.turn_number || 1;
         document.getElementById('victory-goal').textContent = gameState.victory_points || '-';  // 后端应该总是返回
@@ -900,6 +929,10 @@ class GameUI {
         // 检查是否需要放回球
         if (isMyTurn && gameState.player_states[this.currentPlayerName]?.needs_return_balls) {
             this.showReturnBallsModal();
+        } else if (this.waitingForReturnBalls && isMyTurn) {
+            // 拿球后不需要放回球，继续进化/结束回合流程
+            this.waitingForReturnBalls = false;
+            this.checkAndShowEvolution();
         }
     }
 
@@ -916,9 +949,16 @@ class GameUI {
             const response = await api.takeGems(this.currentRoomId, this.currentPlayerName, this.selectedBalls);
             if (response.success) {
                 showToast('成功拿取球！', 'success');
+                // 记录动作
+                const ballsText = this.selectedBalls.map(ball => {
+                    const config = BALL_CONFIG[ball];
+                    return config?.emoji || ball;
+                }).join(' ');
+                this.currentActionSteps.push(`🎨 拿取球: ${ballsText}`);
+                
                 this.clearBallSelection();
                 this.hasPerformedMainAction = true;
-                this.checkAndShowEvolution();
+                this.waitingForReturnBalls = true;  // 设置标志，等待检查是否需要放回球
             } else {
                 showToast(response.error || '拿取失败', 'error');
             }
@@ -928,7 +968,7 @@ class GameUI {
     }
 
     /**
-     * 检查并自动触发进化或结束回合
+     * 检查并自动触发进化或结束行动
      */
     checkAndShowEvolution() {
         setTimeout(async () => {
@@ -942,8 +982,8 @@ class GameUI {
                 // 自动弹出进化选择界面
                 await this.executeEvolution();
             } else {
-                // 不能进化或已进化，自动结束回合
-                await this.autoEndTurn();
+                // 不能进化或已进化，自动结束行动
+                await this.autoEndAction();
             }
         }, 1000);  // 等待1秒让游戏状态更新
     }
@@ -953,25 +993,60 @@ class GameUI {
      */
     checkCanEvolve(playerState) {
         const displayCards = playerState.display_area || [];
+        const reservedCards = playerState.reserved_cards || [];
         const permanentBalls = playerState.permanent_balls || {};
+        const gameState = this.currentGameState;
         
-        // 检查展示区的每张卡牌是否可以进化
+        // 收集桌面上所有可用的卡牌（不在牌堆里）
+        const availableCards = [];
+        
+        // 1. 桌面上显示的卡牌
+        if (gameState && gameState.tableau) {
+            for (const [tier, cards] of Object.entries(gameState.tableau)) {
+                if (Array.isArray(cards)) {
+                    availableCards.push(...cards);
+                }
+            }
+        }
+        
+        // 2. 稀有和传说卡牌
+        if (gameState && gameState.rare_card) {
+            availableCards.push(gameState.rare_card);
+        }
+        if (gameState && gameState.legendary_card) {
+            availableCards.push(gameState.legendary_card);
+        }
+        
+        // 3. 我的预购区卡牌
+        availableCards.push(...reservedCards);
+        
+        // 检查已拥有卡牌中是否有可以进化的
         for (const card of displayCards) {
             if (!card.evolution_target) continue;  // 没有进化目标
             if (card.level >= 3) continue;  // Lv3及以上不能进化
             
+            // 检查进化目标卡牌是否在桌面或预购区
+            const targetExists = availableCards.some(c => c.name === card.evolution_target);
+            if (!targetExists) {
+                console.log(`❌ ${card.name}的进化目标${card.evolution_target}不在桌面或预购区`);
+                continue;  // 进化目标不存在，跳过
+            }
+            
             // 检查是否有足够的永久球
             const requiredBalls = card.evolution_requirement || {};
-            let canEvolve = true;
+            let hasEnoughBalls = true;
             
             for (const [ballType, required] of Object.entries(requiredBalls)) {
                 if ((permanentBalls[ballType] || 0) < required) {
-                    canEvolve = false;
+                    hasEnoughBalls = false;
                     break;
                 }
             }
             
-            if (canEvolve) return true;
+            if (hasEnoughBalls) {
+                console.log(`✅ ${card.name}可以进化为${card.evolution_target}`);
+                return true;
+            }
         }
         
         return false;
@@ -983,7 +1058,7 @@ class GameUI {
     async executeEvolution() {
         const currentPlayer = this.currentGameState?.player_states?.[this.currentPlayerName];
         if (!currentPlayer) {
-            await this.autoEndTurn();
+            await this.autoEndAction();
             return;
         }
         
@@ -1002,8 +1077,8 @@ class GameUI {
         });
         
         if (evolvableCards.length === 0) {
-            // 没有可进化的卡牌，自动结束回合
-            await this.autoEndTurn();
+            // 没有可进化的卡牌，自动结束行动
+            await this.autoEndAction();
             return;
         }
         
@@ -1011,8 +1086,8 @@ class GameUI {
         const cardId = await this.showEvolutionChoice(evolvableCards);
         
         if (!cardId) {
-            // 用户选择跳过进化，自动结束回合
-            await this.autoEndTurn();
+            // 用户选择跳过进化，自动结束行动
+            await this.autoEndAction();
             return;
         }
         
@@ -1026,7 +1101,8 @@ class GameUI {
             });
             
             if (response.success) {
-                showToast(`${cardToEvolve.name} 进化成功！`, 'success');
+                // 显示醒目的进化成功提示（进化是独立阶段，不计入回合动作）
+                this.showEvolutionNotification(cardToEvolve.name, cardToEvolve.evolution_target);
                 this.hasPerformedEvolution = true;
             } else {
                 showToast(response.error || '进化失败', 'error');
@@ -1035,8 +1111,8 @@ class GameUI {
             showToast('操作失败: ' + error.message, 'error');
         }
         
-        // 进化完成后，自动结束回合
-        await this.autoEndTurn();
+        // 进化完成后，自动结束行动
+        await this.autoEndAction();
     }
     
     /**
@@ -1057,7 +1133,7 @@ class GameUI {
             modal.innerHTML = `
                 <div class="modal-content">
                     <h3>🔄 可以进化卡牌</h3>
-                    <p style="margin: 10px 0; color: #bbb;">选择一张卡牌进化，或跳过进化直接结束回合</p>
+                    <p style="margin: 10px 0; color: #bbb;">选择一张卡牌进化，或跳过进化直接结束行动</p>
                     <div class="evolution-options">
                         ${cardsHtml}
                     </div>
@@ -1084,16 +1160,17 @@ class GameUI {
     }
 
     /**
-     * 自动结束回合（在完成动作和进化检查后调用）
+     * 自动结束行动（在完成动作和进化检查后调用）
      */
-    async autoEndTurn() {
+    async autoEndAction() {
         try {
             const response = await api.endTurn(this.currentRoomId, this.currentPlayerName);
             if (response.success) {
-                showToast('回合结束', 'info');
+                // 显示醒目的行动结束提示
+                this.showActionEndNotification(this.currentPlayerName);
                 this.clearBallSelection();
                 this.selectedCard = null;
-                // 重置回合状态
+                // 重置行动状态
                 this.hasPerformedMainAction = false;
                 this.hasPerformedEvolution = false;
             } else {
@@ -1103,13 +1180,237 @@ class GameUI {
             showToast('操作失败: ' + error.message, 'error');
         }
     }
+    
+    /**
+     * 显示进化成功通知
+     */
+    showEvolutionNotification(fromCard, toCard) {
+        // 移除旧的通知（如果存在）
+        const oldNotification = document.getElementById('game-notification');
+        if (oldNotification) {
+            oldNotification.remove();
+        }
+        
+        // 创建全屏通知
+        const notification = document.createElement('div');
+        notification.id = 'game-notification'; // 固定ID，用于覆盖
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+            color: white;
+            padding: 40px 60px;
+            border-radius: 20px;
+            font-size: 1.8em;
+            font-weight: bold;
+            text-align: center;
+            z-index: 10001;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            animation: slideInFromTop 2.5s ease-in-out;
+        `;
+        notification.innerHTML = `
+            <div style="font-size: 1.5em; margin-bottom: 10px;">⚡</div>
+            <div>进化成功！</div>
+            <div style="font-size: 0.8em; margin-top: 15px; color: #ffeaa7;">
+                ${fromCard} → ${toCard}
+            </div>
+        `;
+        
+        // 添加动画样式
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideInFromTop {
+                0% { opacity: 0; transform: translateX(-50%) translateY(-50px); }
+                20% { opacity: 1; transform: translateX(-50%) translateY(0); }
+                80% { opacity: 1; transform: translateX(-50%) translateY(0); }
+                100% { opacity: 0; transform: translateX(-50%) translateY(-50px); }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        document.body.appendChild(notification);
+        
+        // 2.5秒后自动移除
+        setTimeout(() => {
+            if (notification.parentNode) {
+                document.body.removeChild(notification);
+            }
+            if (style.parentNode) {
+                document.head.removeChild(style);
+            }
+        }, 2500);
+    }
+    
+    /**
+     * 显示其他玩家（包括AI）的行动结束通知（详细版）
+     */
+    showActionEndNotificationForOthers(playerName, gameState) {
+        // 判断是否是AI
+        const isAI = playerName.includes('机器人') || playerName.includes('AI') || playerName.includes('训练家');
+        const icon = isAI ? '🤖' : '👤';
+        
+        // 从游戏状态中获取该玩家的last_action
+        let actionsHTML = '';
+        if (gameState && gameState.player_states && gameState.player_states[playerName]) {
+            const lastAction = gameState.player_states[playerName].last_action;
+            if (lastAction && lastAction.trim() !== '') {
+                // 将last_action按"→"分割成多个步骤
+                const steps = lastAction.split(' → ').filter(s => s.trim() !== '');
+                actionsHTML = steps.map(step => 
+                    `<div style="margin: 8px 0; font-size: 0.65em; text-align: left;">${step}</div>`
+                ).join('');
+            } else {
+                // 没有行动记录
+                actionsHTML = '<div style="margin: 8px 0; font-size: 0.65em; opacity: 0.8;">本次行动无步骤</div>';
+            }
+        } else {
+            // 找不到游戏状态或玩家状态，显示通用信息
+            actionsHTML = isAI 
+                ? '<div style="margin: 8px 0; font-size: 0.65em; text-align: left;">🤖 AI已完成行动决策</div>'
+                : '<div style="margin: 8px 0; font-size: 0.65em; text-align: left;">👤 玩家已完成行动</div>';
+        }
+        
+        // 移除旧的通知（如果存在）
+        const oldNotification = document.getElementById('game-notification');
+        if (oldNotification) {
+            oldNotification.remove();
+        }
+        
+        // 创建全屏通知
+        const notification = document.createElement('div');
+        notification.id = 'game-notification'; // 固定ID，用于覆盖
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 35px 50px;
+            border-radius: 20px;
+            font-size: 1.8em;
+            font-weight: bold;
+            text-align: center;
+            z-index: 10001;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            animation: slideInFromTop 4s ease-in-out;
+            max-width: 600px;
+        `;
+        notification.innerHTML = `
+            <div style="font-size: 1.3em; margin-bottom: 10px;">${icon}</div>
+            <div style="margin-bottom: 20px;">${playerName} 的行动结束</div>
+            <div style="background: rgba(0, 0, 0, 0.3); padding: 15px; border-radius: 10px;">
+                <div style="font-size: 0.6em; margin-bottom: 10px; color: #ffeaa7;">本次行动：</div>
+                ${actionsHTML}
+            </div>
+        `;
+        
+        // 添加动画样式
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideInFromTop {
+                0% { opacity: 0; transform: translateX(-50%) translateY(-50px); }
+                15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+                85% { opacity: 1; transform: translateX(-50%) translateY(0); }
+                100% { opacity: 0; transform: translateX(-50%) translateY(-50px); }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        document.body.appendChild(notification);
+        
+        // 4秒后自动移除
+        setTimeout(() => {
+            if (notification.parentNode) {
+                document.body.removeChild(notification);
+            }
+            if (style.parentNode) {
+                document.head.removeChild(style);
+            }
+        }, 4000);
+    }
+    
+    /**
+     * 显示行动结束通知（当前玩家）
+     */
+    showActionEndNotification(playerName) {
+        // 准备动作列表
+        const actionsHTML = this.currentActionSteps.length > 0 
+            ? this.currentActionSteps.map(action => 
+                `<div style="margin: 8px 0; font-size: 0.65em; text-align: left;">${action}</div>`
+              ).join('')
+            : '<div style="margin: 8px 0; font-size: 0.65em; opacity: 0.8;">本次行动无步骤</div>';
+        
+        // 移除旧的通知（如果存在）
+        const oldNotification = document.getElementById('game-notification');
+        if (oldNotification) {
+            oldNotification.remove();
+        }
+        
+        // 创建全屏通知
+        const notification = document.createElement('div');
+        notification.id = 'game-notification'; // 固定ID，用于覆盖
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 35px 50px;
+            border-radius: 20px;
+            font-size: 1.8em;
+            font-weight: bold;
+            text-align: center;
+            z-index: 10001;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            animation: slideInFromTop 4s ease-in-out;
+            max-width: 600px;
+        `;
+        notification.innerHTML = `
+            <div style="font-size: 1.3em; margin-bottom: 10px;">🏁</div>
+            <div style="margin-bottom: 20px;">${playerName} 的行动结束</div>
+            <div style="background: rgba(0, 0, 0, 0.3); padding: 15px; border-radius: 10px;">
+                <div style="font-size: 0.6em; margin-bottom: 10px; color: #ffeaa7;">本次行动：</div>
+                ${actionsHTML}
+            </div>
+        `;
+        
+        // 添加动画样式
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideInFromTop {
+                0% { opacity: 0; transform: translateX(-50%) translateY(-50px); }
+                15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+                85% { opacity: 1; transform: translateX(-50%) translateY(0); }
+                100% { opacity: 0; transform: translateX(-50%) translateY(-50px); }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        document.body.appendChild(notification);
+        
+        // 4秒后自动移除
+        setTimeout(() => {
+            if (notification.parentNode) {
+                document.body.removeChild(notification);
+            }
+            if (style.parentNode) {
+                document.head.removeChild(style);
+            }
+        }, 4000);
+        
+        // 注意：动作记录会在下一个行动开始时自动清空（在updateGameUI中检测行动切换）
+    }
 
     /**
-     * 结束回合（手动调用，已废弃）
+     * 结束行动（手动调用，已废弃）
      */
     async endTurn() {
         // 此方法已废弃，保留仅为兼容性
-        await this.autoEndTurn();
+        await this.autoEndAction();
     }
 
     /**
@@ -1141,7 +1442,7 @@ class GameUI {
         modal.style.zIndex = '10000';
         
         modal.innerHTML = `
-            <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-content" style="max-width: 600px;">
                 <h3>⚠️ 球数超过上限</h3>
                 <p style="color: #e74c3c; font-weight: bold;">
                     当前球数：${totalBalls}个 | 需要放回：${neededReturn}个
@@ -1149,12 +1450,12 @@ class GameUI {
                 
                 <div style="margin: 20px 0;">
                     <h4>当前持有球：</h4>
-                    <div id="current-balls-display" class="ball-selection-grid"></div>
+                    <div id="current-balls-display" style="display: flex; justify-content: center; gap: 10px; flex-wrap: nowrap; overflow-x: auto;"></div>
                 </div>
                 
                 <div style="margin: 20px 0;">
                     <h4>选择要放回的球：</h4>
-                    <div id="return-balls-display" class="ball-selection-grid"></div>
+                    <div id="return-balls-display" style="display: flex; justify-content: center; gap: 10px; flex-wrap: nowrap; overflow-x: auto;"></div>
                 </div>
                 
                 <div style="margin: 15px 0; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 5px;">
@@ -1193,36 +1494,38 @@ class GameUI {
         
         const ballOrder = ['黑', '粉', '黄', '蓝', '红', '大师球'];
         
-        // 渲染当前持有球
+        // 渲染当前持有球（横向排列）
         currentBallsDiv.innerHTML = ballOrder.map(ball => {
             const count = playerBalls[ball] || 0;
             const config = BALL_CONFIG[ball];
             return `
-                <div class="ball-item">
-                    <div class="ball-emoji">${config?.emoji || ball}</div>
-                    <div class="ball-name">${config?.name || ball}</div>
-                    <div class="ball-count">${count}</div>
+                <div style="display: flex; flex-direction: column; align-items: center; min-width: 60px;">
+                    <div style="font-size: 2em;">${config?.emoji || ball}</div>
+                    <div style="font-size: 0.85em; color: #bbb;">${config?.name || ball}</div>
+                    <div style="font-size: 1.2em; font-weight: bold; color: #f1c40f;">${count}</div>
                 </div>
             `;
         }).join('');
         
-        // 渲染要放回的球（带上下箭头）
+        // 渲染要放回的球（带上下箭头，横向排列）
         returnBallsDiv.innerHTML = ballOrder.map(ball => {
             const maxCount = playerBalls[ball] || 0;
             const config = BALL_CONFIG[ball];
             const currentReturn = this.ballsToReturn[ball] || 0;
             
             return `
-                <div class="ball-item">
-                    <div class="ball-emoji">${config?.emoji || ball}</div>
-                    <div class="ball-name">${config?.name || ball}</div>
-                    <div class="ball-controls">
-                        <button class="ball-decrease-btn" data-ball="${ball}" ${currentReturn === 0 ? 'disabled' : ''}>
-                            ▼
-                        </button>
-                        <span class="ball-count">${currentReturn}</span>
-                        <button class="ball-increase-btn" data-ball="${ball}" ${maxCount === 0 ? 'disabled' : ''}>
+                <div style="display: flex; flex-direction: column; align-items: center; min-width: 65px;">
+                    <div style="font-size: 2em;">${config?.emoji || ball}</div>
+                    <div style="font-size: 0.85em; color: #bbb; margin-bottom: 8px;">${config?.name || ball}</div>
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 3px;">
+                        <button class="ball-increase-btn" data-ball="${ball}" ${maxCount === 0 ? 'disabled' : ''}
+                            style="padding: 3px 10px; cursor: pointer; border: none; background: #27ae60; color: white; border-radius: 4px; font-size: 1em; min-width: 40px;">
                             ▲
+                        </button>
+                        <span style="font-size: 1.3em; font-weight: bold; color: #f1c40f; min-width: 40px; text-align: center; line-height: 1.2;">${currentReturn}</span>
+                        <button class="ball-decrease-btn" data-ball="${ball}" ${currentReturn === 0 ? 'disabled' : ''}
+                            style="padding: 3px 10px; cursor: pointer; border: none; background: #e74c3c; color: white; border-radius: 4px; font-size: 1em; min-width: 40px;">
+                            ▼
                         </button>
                     </div>
                 </div>
@@ -1314,12 +1617,24 @@ class GameUI {
         try {
             const response = await api.returnBalls(this.currentRoomId, this.currentPlayerName, this.ballsToReturn);
             if (response.success) {
+                // 记录动作
+                const returnedBalls = Object.entries(this.ballsToReturn)
+                    .filter(([_, count]) => count > 0)
+                    .map(([ball, count]) => {
+                        const config = BALL_CONFIG[ball];
+                        return `${config?.emoji || ball}×${count}`;
+                    })
+                    .join(' ');
+                this.currentActionSteps.push(`↩️ 放回球: ${returnedBalls}`);
+                
                 showToast('成功放回球！', 'success');
                 // 关闭弹窗
                 const modal = document.getElementById('return-balls-modal');
                 if (modal) {
                     document.body.removeChild(modal);
                 }
+                // 清除等待标志
+                this.waitingForReturnBalls = false;
                 // 检查进化
                 this.checkAndShowEvolution();
             } else {
@@ -1329,7 +1644,33 @@ class GameUI {
             showToast('操作失败: ' + error.message, 'error');
         }
     }
+    
+    /**
+     * 清空当前行动步骤记录（当轮到新玩家时）
+     */
+    clearActionSteps() {
+        this.currentActionSteps = [];
+    }
 
+    /**
+     * 暂停轮询（显示通知时使用）
+     */
+    pausePollingForNotification() {
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+            this.pollingInterval = null;
+            
+            // 4秒后恢复轮询
+            setTimeout(() => {
+                if (this.currentRoomId && this.currentPlayerName) {
+                    this.pollingInterval = setInterval(() => {
+                        this.pollGameState();
+                    }, 2000);
+                }
+            }, 4000);
+        }
+    }
+    
     /**
      * 开始轮询游戏状态
      */

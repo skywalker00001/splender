@@ -62,6 +62,7 @@ class Player:
         self.victory_points = 0
         self.has_evolved_this_turn = False  # 本回合是否已进化
         self.needs_return_balls = False  # 是否需要放回球（超过10个）
+        self.last_action = ""  # 记录最后一次行动的描述
         
     def get_permanent_balls(self) -> Dict[BallType, int]:
         """获取展示区永久球数量"""

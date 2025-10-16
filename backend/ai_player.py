@@ -41,6 +41,10 @@ class AIPlayer:
             "坂木", "渡", "希罗娜", "大吾"
         ]
         
+        # 随机打乱名字顺序
+        import random
+        random.shuffle(bot_names)
+        
         # 找一个未使用的名字
         for name in bot_names:
             full_name = f"{self.name_prefix}·{name}"

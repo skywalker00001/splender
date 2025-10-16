@@ -95,6 +95,10 @@ class GameRoom:
     def start_game(self):
         """开始游戏 - 必须达到配置的玩家数量"""
         if len(self.players) == self.max_players:
+            # 随机打乱玩家顺序（座位随机化）
+            import random
+            random.shuffle(self.players)
+            
             self.game = SplendorPokemonGame(self.players, victory_points=self.victory_points)
             self.status = "playing"
             self.turn_number = 1  # 第一回合
@@ -281,6 +285,7 @@ class GameRoom:
                             "name": card.name,
                             "level": card.level,
                             "rarity": card.rarity.value,
+                            "cost": {ball.value: amount for ball, amount in card.cost.items() if amount > 0},
                             "victory_points": card.victory_points,
                             "permanent_balls": {ball.value: amount for ball, amount in card.permanent_balls.items() if amount > 0},
                             # 进化信息（仅1/2级卡牌）
@@ -305,7 +310,8 @@ class GameRoom:
                     ],
                     "victory_points": player.victory_points,
                     "permanent_balls": {ball.value: count for ball, count in player.get_permanent_balls().items() if count > 0},
-                    "needs_return_balls": player.needs_return_balls
+                    "needs_return_balls": player.needs_return_balls,
+                    "last_action": player.last_action
                 }
                 for player in self.game.players
             }
@@ -364,10 +370,14 @@ def login():
         # 如果用户不存在，创建新用户
         if username not in users:
             users[username] = User(username)
+            # 同时保存到数据库
+            game_db.get_or_create_user(username)
             is_new_user = True
         else:
             # 更新最后登录时间
             users[username].last_login = datetime.now()
+            # 同时更新数据库中的最后登录时间
+            game_db.get_or_create_user(username)
             is_new_user = False
         
         user = users[username]
@@ -883,6 +893,7 @@ def execute_ai_turn(room_id):
         # 验证decision不为None
         if not decision:
             print(f"警告：AI玩家 {current_player.name} 返回了空决策，强制结束回合")
+            current_player.last_action = "⚠️ 无有效决策，跳过行动"
             room.game.end_turn()
             room.last_activity = datetime.now()
             return
@@ -924,6 +935,20 @@ def execute_ai_turn(room_id):
                             break
                 room.game.take_balls(ball_enum_types)
                 
+                # 记录AI行动
+                ball_emoji_map = {
+                    "红": "🔴",
+                    "蓝": "🔵",
+                    "黄": "🟡",
+                    "粉": "🌸",
+                    "黑": "⚫",
+                    "大师球": "🟣"
+                }
+                from collections import Counter
+                ball_counts = Counter([bt.value for bt in ball_enum_types])
+                ball_desc = " ".join([f"{ball_emoji_map.get(ball, ball)}×{count}" for ball, count in ball_counts.items()])
+                current_player.last_action = f"🎨 拿取球: {ball_desc}"
+                
             elif action == "buy_card":
                 card_info = data.get("card")
                 # 使用card_id查找卡牌
@@ -931,7 +956,14 @@ def execute_ai_turn(room_id):
                 target_card = room.game.find_card_by_id(card_id, current_player)
                 
                 if target_card:
-                    room.game.buy_card(target_card)
+                    success = room.game.buy_card(target_card)
+                    if success:
+                        # 记录AI行动
+                        current_player.last_action = f"💰 购买卡牌: {target_card.name} (Lv{target_card.level}, {target_card.victory_points}VP)"
+                    else:
+                        current_player.last_action = f"❌ 购买失败: {target_card.name}"
+                else:
+                    current_player.last_action = "❌ 购买失败: 卡牌不存在"
                     
             elif action == "reserve_card":
                 card_info = data.get("card")
@@ -940,7 +972,25 @@ def execute_ai_turn(room_id):
                 target_card = room.game.find_card_by_id(card_id, current_player)
                 
                 if target_card:
-                    room.game.reserve_card(target_card)
+                    success = room.game.reserve_card(target_card)
+                    if success:
+                        # 记录AI行动
+                        blind = data.get('blind', False)
+                        if blind:
+                            current_player.last_action = f"📦 盲预购: Lv{target_card.level}牌堆 → {target_card.name}"
+                        else:
+                            current_player.last_action = f"📦 预购卡牌: {target_card.name} (Lv{target_card.level})"
+                    else:
+                        current_player.last_action = f"❌ 预购失败: {target_card.name}"
+                else:
+                    current_player.last_action = "❌ 预购失败: 卡牌不存在"
+            else:
+                # 未知的行动类型
+                current_player.last_action = f"❓ 未知行动: {action}"
+            
+            # 如果执行到这里last_action还是空的，说明没有执行任何行动
+            if not current_player.last_action or current_player.last_action.strip() == "":
+                current_player.last_action = "⚠️ 未执行任何行动"
             
             # end_turn 包含了进化检查、球数上限检查等
             room.game.end_turn()
@@ -951,6 +1001,8 @@ def execute_ai_turn(room_id):
             print(f"AI执行回合时出错: {e}")
             import traceback
             traceback.print_exc()
+            # 记录错误
+            current_player.last_action = f"❌ 执行出错: {str(e)[:50]}"
             # 出错时也要结束回合，否则会卡住
             try:
                 if not room.game.game_over:
@@ -989,6 +1041,20 @@ def take_gems(room_id):
         }, result, "拿取球" if result else "拿取球失败")
         
         if result:
+            # 记录玩家行动描述
+            ball_emoji_map = {
+                "红": "🔴",
+                "蓝": "🔵",
+                "黄": "🟡",
+                "粉": "🌸",
+                "黑": "⚫",
+                "大师球": "🟣"
+            }
+            from collections import Counter
+            ball_counts = Counter([bt.value for bt in ball_types])
+            ball_desc = " ".join([f"{ball_emoji_map.get(ball, ball)}×{count}" for ball, count in ball_counts.items()])
+            room.game.get_current_player().last_action = f"🎨 拿取球: {ball_desc}"
+            
             room.last_activity = datetime.now()
             return jsonify({
                 "success": True,
@@ -1064,6 +1130,10 @@ def buy_card(room_id):
         }, result, f"购买{target_card.name}" if result else "购买卡牌失败")
         
         if result:
+            # 记录玩家行动描述
+            player = room.game.get_current_player()
+            player.last_action = f"💰 购买卡牌: {target_card.name} (Lv{target_card.level}, {target_card.victory_points}VP)"
+            
             room.last_activity = datetime.now()
             return jsonify({
                 "success": True,
@@ -1146,6 +1216,13 @@ def reserve_card(room_id):
         }, result, f"预购{target_card.name}" if result else "预购卡牌失败")
         
         if result:
+            # 记录玩家行动描述
+            player = room.game.get_current_player()
+            if blind:
+                player.last_action = f"📦 盲预购: Lv{target_card.level}牌堆 → {target_card.name}"
+            else:
+                player.last_action = f"📦 预购卡牌: {target_card.name} (Lv{target_card.level})"
+            
             room.last_activity = datetime.now()
             return jsonify({
                 "success": True,
@@ -1267,6 +1344,10 @@ def evolve_card(room_id):
                 }
             }, True, f"{base_card.name} 进化为 {target_card.name}")
             
+            # 记录玩家行动描述 - 注意：进化是行动之外的额外步骤，这里记录但前端会在进化通知中单独展示
+            # 这个记录主要用于后续回顾
+            player.last_action += f" → ⚡进化: {base_card.name}→{target_card.name}"
+            
             room.last_activity = datetime.now()
             
             return jsonify({
@@ -1304,6 +1385,20 @@ def return_balls(room_id):
             room.record_action("return_balls", {
                 "balls_returned": {ball.value: amount for ball, amount in balls_dict.items()}
             }, True, f"放回{sum(balls_dict.values())}个球")
+            
+            # 记录玩家行动描述
+            ball_emoji_map = {
+                "红": "🔴",
+                "蓝": "🔵",
+                "黄": "🟡",
+                "粉": "🌸",
+                "黑": "⚫",
+                "大师球": "🟣"
+            }
+            ball_desc = " ".join([f"{ball_emoji_map.get(ball.value, ball.value)}×{amount}" 
+                                 for ball, amount in balls_dict.items() if amount > 0])
+            player = room.game.get_current_player()
+            player.last_action += f" → ↩️ 放回球: {ball_desc}"
             
             room.last_activity = datetime.now()
             return jsonify({
@@ -1345,6 +1440,8 @@ def end_turn(room_id):
         # 获取下一个玩家
         if not room.game.game_over:
             next_player = room.game.get_current_player().name
+            # 清空新玩家的上一次行动记录，为新行动做准备
+            room.game.get_current_player().last_action = ""
         else:
             next_player = None
             # 游戏结束，保存历史
@@ -1674,8 +1771,38 @@ def user_login():
             "error": str(e)
         }), 500
 
+def load_users_from_database():
+    """从数据库加载所有用户到内存"""
+    print("📚 正在从数据库加载用户...")
+    try:
+        # 获取数据库中的所有用户
+        conn = game_db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT username, created_at, last_login FROM users')
+        db_users = cursor.fetchall()
+        conn.close()
+        
+        # 加载到内存
+        with user_lock:
+            for row in db_users:
+                username = row['username']
+                if username not in users:
+                    user = User(username)
+                    # 恢复时间戳
+                    user.created_at = datetime.fromisoformat(row['created_at'])
+                    user.last_login = datetime.fromisoformat(row['last_login'])
+                    users[username] = user
+        
+        print(f"✅ 成功加载 {len(db_users)} 个用户")
+    except Exception as e:
+        print(f"⚠️  加载用户时出错: {e}")
+
 if __name__ == '__main__':
     print("🌟 璀璨宝石宝可梦API服务启动中...")
+    
+    # 从数据库加载用户
+    load_users_from_database()
+    
     print("服务地址: http://localhost:5000")
     print("API文档: http://localhost:5000/api/health")
     
