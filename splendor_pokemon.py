@@ -36,6 +36,7 @@ class Evolution:
 @dataclass
 class PokemonCard:
     """宝可梦卡牌"""
+    card_id: int  # 唯一ID（1-90）
     name: str
     level: int  # 1-3 或特殊（稀有/传说）
     rarity: Rarity
@@ -202,6 +203,7 @@ def load_cards_from_csv(csv_path: str) -> List[PokemonCard]:
             reader = csv.DictReader(f)
             for row in reader:
                 # 解析基础信息
+                card_id = int(row['卡牌ID'])  # 读取唯一ID
                 name = row['卡牌名称']
                 level = int(row['卡牌等级'])
                 perm_color = row['永久球颜色']
@@ -253,6 +255,7 @@ def load_cards_from_csv(csv_path: str) -> List[PokemonCard]:
                 
                 # 创建卡牌
                 card = PokemonCard(
+                    card_id=card_id,  # 唯一ID
                     name=name,
                     level=level,
                     rarity=rarity,
@@ -355,6 +358,36 @@ class SplendorPokemonGame:
         """获取当前玩家"""
         return self.players[self.current_player_index]
     
+    def find_card_by_id(self, card_id: int, player: Player = None) -> Optional[PokemonCard]:
+        """根据card_id查找卡牌
+        
+        Args:
+            card_id: 卡牌唯一ID
+            player: 如果提供，也会在该玩家的预购区查找
+        
+        Returns:
+            找到的卡牌，如果未找到返回None
+        """
+        # 在场上tableau中查找
+        for tier, cards in self.tableau.items():
+            for card in cards:
+                if card.card_id == card_id:
+                    return card
+        
+        # 在稀有/传说卡中查找
+        if self.rare_card and self.rare_card.card_id == card_id:
+            return self.rare_card
+        if self.legendary_card and self.legendary_card.card_id == card_id:
+            return self.legendary_card
+        
+        # 如果提供了玩家，在预购区查找
+        if player:
+            for card in player.reserved_cards:
+                if card.card_id == card_id:
+                    return card
+        
+        return None
+    
     def _check_ball_limit_after_action(self):
         """检查并处理10球上限"""
         player = self.get_current_player()
@@ -412,10 +445,26 @@ class SplendorPokemonGame:
         return True
     
     def take_balls(self, ball_types: List[BallType]) -> bool:
-        """拿取球"""
+        """
+        拿取球（支持完整规则）
+        
+        规则：
+        1. 球池充足（≥3种颜色）：拿3个不同颜色 OR 拿2个同色（该颜色≥4个）
+        2. 球池只剩2种颜色：
+           - 有颜色≥4个：拿2个同色 OR 拿2个不同色各1个
+           - 所有颜色都<4个：拿2个不同色各1个
+        3. 球池只剩1种颜色：
+           - ≥4个：拿2个同色
+           - <4个：拿1个
+        """
         player = self.get_current_player()
         
-        # 规则1：拿3种不同颜色
+        # 计算球池中有多少种颜色可用
+        available_colors = [bt for bt in BallType 
+                          if bt != BallType.MASTER and self.ball_pool[bt] > 0]
+        num_colors = len(available_colors)
+        
+        # 规则1：拿3种不同颜色（球池充足时）
         if len(ball_types) == 3:
             if len(set(ball_types)) != 3:
                 return False
@@ -427,22 +476,64 @@ class SplendorPokemonGame:
                 self.ball_pool[ball] -= 1
                 player.balls[ball] += 1
             
-            # 检查球数上限（拿球后可能超过10个）
             self._check_ball_limit_after_action()
             return True
         
-        # 规则2：拿2个同色（该颜色余量须≥4）
+        # 规则2：拿2个球
         elif len(ball_types) == 2:
-            if ball_types[0] != ball_types[1]:
-                return False
-            ball = ball_types[0]
-            if ball == BallType.MASTER or self.ball_pool[ball] < 4:
-                return False
-            # 执行
-            self.ball_pool[ball] -= 2
-            player.balls[ball] += 2
+            # 情况A：拿2个同色（该颜色≥4个）
+            if ball_types[0] == ball_types[1]:
+                ball = ball_types[0]
+                if ball == BallType.MASTER or self.ball_pool[ball] < 4:
+                    return False
+                # 执行
+                self.ball_pool[ball] -= 2
+                player.balls[ball] += 2
+                
+                self._check_ball_limit_after_action()
+                return True
             
-            # 检查球数上限（拿球后可能超过10个）
+            # 情况B：拿2个不同色各1个（球池不充足时）
+            else:
+                if len(set(ball_types)) != 2:
+                    return False
+                
+                # 验证：只有当球池只剩这2种颜色时才允许
+                if num_colors != 2:
+                    return False
+                
+                # 验证：这2个球必须是仅有的2种颜色
+                if set(ball_types) != set(available_colors):
+                    return False
+                
+                # 执行
+                for ball in ball_types:
+                    if self.ball_pool[ball] < 1:
+                        return False
+                    self.ball_pool[ball] -= 1
+                    player.balls[ball] += 1
+                
+                self._check_ball_limit_after_action()
+                return True
+        
+        # 规则3：拿1个球（球池只剩1种颜色且<4个时）
+        elif len(ball_types) == 1:
+            ball = ball_types[0]
+            
+            # 验证：只有当球池只剩这1种颜色且<4个时才允许
+            if num_colors != 1:
+                return False
+            if available_colors[0] != ball:
+                return False
+            if self.ball_pool[ball] >= 4:
+                return False  # 如果≥4个，应该拿2个
+            if self.ball_pool[ball] < 1:
+                return False
+            
+            # 执行
+            self.ball_pool[ball] -= 1
+            player.balls[ball] += 1
+            
             self._check_ball_limit_after_action()
             return True
         

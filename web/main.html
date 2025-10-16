@@ -11,16 +11,32 @@
         <!-- 登录/房间选择界面 -->
         <div id="lobby-screen" class="screen active">
             <div class="container">
+                <!-- 用户信息栏 -->
+                <div class="user-info-bar">
+                    <div class="user-welcome">
+                        <span>👋 欢迎，<strong id="current-user-name">-</strong></span>
+                    </div>
+                    <button id="logout-btn" class="btn btn-small btn-secondary">🚪 退出登录</button>
+                </div>
+                
                 <h1 class="title">🌟 璀璨宝石宝可梦 🌟</h1>
                 <p class="subtitle">收集宝石，捕获宝可梦，成为训练大师！</p>
                 
                 <div class="card">
-                    <h2>输入你的名字</h2>
-                    <input type="text" id="player-name-input" placeholder="请输入你的名字" maxlength="10">
+                    <h2>游戏大厅</h2>
+                    <p style="text-align: center; color: #666; margin-bottom: 20px;">
+                        选择创建新房间或加入现有房间开始游戏
+                    </p>
                     
                     <div class="button-group">
-                        <button id="create-room-btn" class="btn btn-primary">创建房间</button>
-                        <button id="show-rooms-btn" class="btn btn-secondary">加入房间</button>
+                        <button id="create-room-btn" class="btn btn-primary">🎮 创建新房间</button>
+                        <button id="show-rooms-btn" class="btn btn-secondary">🚪 加入现有房间</button>
+                    </div>
+                    
+                    <div class="button-group" style="margin-top: 15px;">
+                        <button id="view-rules-lobby-btn" class="btn btn-secondary btn-small">📖 查看规则</button>
+                        <button id="view-cards-lobby-btn" class="btn btn-secondary btn-small">🎴 查看卡库</button>
+                        <button id="view-history-btn" class="btn btn-secondary btn-small">📜 历史对局</button>
                     </div>
                 </div>
 

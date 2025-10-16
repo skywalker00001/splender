@@ -2,6 +2,23 @@
  * 游戏状态管理和UI渲染 - V2版本（适配新规则）
  */
 
+// 检查用户是否已登录
+function checkLoginStatus() {
+    const currentPlayerName = localStorage.getItem('currentPlayerName');
+    if (!currentPlayerName) {
+        // 未登录，跳转到登录页面
+        window.location.href = '/login.html';
+        return false;
+    }
+    return true;
+}
+
+// 页面加载时检查登录状态
+if (!checkLoginStatus()) {
+    // 如果未登录，停止执行后续代码
+    throw new Error('Please login first');
+}
+
 // 球类型配置（BallType）- 5种颜色球 + 大师球
 const BALL_CONFIG = {
     '黑': { emoji: '⚫', class: 'ball-black', name: '黑球' },
@@ -562,7 +579,8 @@ class GameUI {
      * 购买卡牌
      */
     buyCard(card) {
-        api.buyCard(this.currentRoomId, this.currentPlayerName, { name: card.name })
+        // 使用唯一card_id而不是name（避免重名卡牌混淆）
+        api.buyCard(this.currentRoomId, this.currentPlayerName, { card_id: card.card_id })
             .then(response => {
                 if (response.success) {
                     showToast('购买成功！', 'success');
@@ -582,7 +600,8 @@ class GameUI {
      * 预购卡牌
      */
     reserveCard(card) {
-        api.reserveCard(this.currentRoomId, this.currentPlayerName, { card: { name: card.name } })
+        // 使用唯一card_id而不是name（避免重名卡牌混淆）
+        api.reserveCard(this.currentRoomId, this.currentPlayerName, { card: { card_id: card.card_id } })
             .then(response => {
                 if (response.success) {
                     showToast('预购成功！', 'success');
@@ -975,21 +994,21 @@ class GameUI {
         }
         
         // 显示选择框（包含跳过选项）
-        const cardName = await this.showEvolutionChoice(evolvableCards);
+        const cardId = await this.showEvolutionChoice(evolvableCards);
         
-        if (!cardName) {
+        if (!cardId) {
             // 用户选择跳过进化，自动结束回合
             await this.autoEndTurn();
             return;
         }
         
-        const cardToEvolve = evolvableCards.find(c => c.name === cardName);
+        const cardToEvolve = evolvableCards.find(c => c.card_id === cardId);
         
-        // 调用进化API
+        // 调用进化API（使用唯一card_id而不是name）
         try {
             const response = await api.evolveCard(this.currentRoomId, {
                 player_name: this.currentPlayerName,
-                card_name: cardToEvolve.name
+                card_id: cardToEvolve.card_id
             });
             
             if (response.success) {
@@ -1014,8 +1033,9 @@ class GameUI {
             const modal = document.createElement('div');
             modal.className = 'card-action-modal';
             
+            // 使用card_id作为唯一标识，但显示name给用户看
             const cardsHtml = cards.map(card => `
-                <div class="evolution-option" data-card="${card.name}">
+                <div class="evolution-option" data-card-id="${card.card_id}">
                     ${card.name} → ${card.evolution_target}
                 </div>
             `).join('');
@@ -1036,9 +1056,9 @@ class GameUI {
             // 绑定事件
             modal.querySelectorAll('.evolution-option').forEach(option => {
                 option.addEventListener('click', () => {
-                    const cardName = option.dataset.card;
+                    const cardId = parseInt(option.dataset.cardId);
                     document.body.removeChild(modal);
-                    resolve(cardName);
+                    resolve(cardId);
                 });
             });
             

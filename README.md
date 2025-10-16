@@ -21,16 +21,29 @@
 
 ```
 splendor/
-├── start_web.sh          # 启动脚本（入口）
-├── web_app.py            # Web应用主程序
-├── cuicanbaoshi.py       # 游戏核心逻辑
-├── backend/              # 后端API
-│   ├── app.py            # Flask API
-│   ├── ai_player.py      # AI机器人
-│   └── requirements.txt  # Python依赖
-└── web/                  # 前端文件
-    ├── templates/        # HTML模板
-    └── static/           # CSS/JS资源
+├── start_web.sh              # 启动脚本（入口）
+├── web_app.py                # Web应用主程序
+├── splendor_pokemon.py       # 游戏核心逻辑（原cuicanbaoshi.py）
+├── backend/                  # 后端API
+│   ├── app.py                # Flask API
+│   ├── ai_player.py          # AI机器人
+│   ├── AI_STRATEGY.md        # AI策略文档
+│   └── requirements.txt      # Python依赖
+├── web/                      # 前端文件
+│   ├── login.html            # 登录页面
+│   ├── main.html             # 大厅页面
+│   ├── templates/            # HTML模板
+│   └── static/               # CSS/JS资源
+│       ├── css/              # 样式文件
+│       └── js/               # JavaScript文件
+└── test/                     # 测试目录
+    ├── README.md             # 测试说明文档
+    ├── test_game_suite.py    # 核心机制测试
+    ├── test_comprehensive.py # 全面测试套件
+    ├── test_evolution.py     # 进化机制测试
+    ├── test_final.py         # AI对局测试
+    ├── AI_TEST_ANALYSIS.md   # AI测试分析
+    └── SOLUTION_FOR_DEADLOCK.md  # 死锁解决方案
 ```
 
 ## 🎯 游戏规则（完整版）

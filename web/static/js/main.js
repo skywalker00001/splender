@@ -2,6 +2,23 @@
  * 主应用逻辑
  */
 
+// 检查用户是否已登录
+function checkLoginStatus() {
+    const currentPlayerName = localStorage.getItem('currentPlayerName');
+    if (!currentPlayerName) {
+        // 未登录，跳转到登录页面
+        window.location.href = '/login.html';
+        return false;
+    }
+    return true;
+}
+
+// 页面加载时检查登录状态
+if (!checkLoginStatus()) {
+    // 如果未登录，停止执行后续代码
+    throw new Error('Please login first');
+}
+
 // 全局变量
 let currentRoom = null;
 let playerName = null;
@@ -93,6 +110,16 @@ function showToast(message, type = 'info') {
  * 初始化应用
  */
 async function initApp() {
+    // 显示当前登录用户
+    const currentPlayerName = localStorage.getItem('currentPlayerName');
+    if (currentPlayerName) {
+        playerName = currentPlayerName;
+        const userNameElement = document.getElementById('current-user-name');
+        if (userNameElement) {
+            userNameElement.textContent = currentPlayerName;
+        }
+    }
+    
     // 检查API连接
     try {
         await api.healthCheck();
@@ -219,9 +246,18 @@ async function reconnectToGame(session, gameState) {
  */
 function bindEventListeners() {
     // 大厅界面
+    document.getElementById('logout-btn').addEventListener('click', handleLogout);
     document.getElementById('create-room-btn').addEventListener('click', handleCreateRoom);
     document.getElementById('show-rooms-btn').addEventListener('click', handleShowRooms);
     document.getElementById('refresh-rooms-btn').addEventListener('click', loadRoomsList);
+    
+    // 大厅规则和卡库按钮
+    const viewRulesLobbyBtn = document.getElementById('view-rules-lobby-btn');
+    const viewCardsLobbyBtn = document.getElementById('view-cards-lobby-btn');
+    const viewHistoryBtn = document.getElementById('view-history-btn');
+    if (viewRulesLobbyBtn) viewRulesLobbyBtn.addEventListener('click', () => showRulesModal());
+    if (viewCardsLobbyBtn) viewCardsLobbyBtn.addEventListener('click', () => showCardsModal());
+    if (viewHistoryBtn) viewHistoryBtn.addEventListener('click', () => window.location.href = '/history.html');
     
     // 房间界面
     document.getElementById('copy-room-id-btn').addEventListener('click', handleCopyRoomId);
@@ -264,14 +300,31 @@ function bindEventListeners() {
 }
 
 /**
+ * 处理退出登录
+ */
+function handleLogout() {
+    // 确认退出
+    if (confirm('确定要退出登录吗？')) {
+        // 清除localStorage
+        localStorage.removeItem('currentPlayerName');
+        localStorage.removeItem('userData');
+        clearGameSession();
+        
+        // 跳转到登录页面
+        window.location.href = '/login.html';
+    }
+}
+
+/**
  * 创建房间
  */
 async function handleCreateRoom() {
-    const nameInput = document.getElementById('player-name-input');
-    playerName = nameInput.value.trim();
+    // 从localStorage获取玩家名
+    playerName = localStorage.getItem('currentPlayerName');
     
     if (!playerName) {
-        showToast('请输入你的名字', 'error');
+        showToast('未登录，请先登录', 'error');
+        window.location.href = '/login.html';
         return;
     }
 
@@ -343,6 +396,15 @@ async function loadRoomsList() {
  * 加入房间
  */
 window.joinRoom = async function(roomId) {
+    // 确保使用localStorage中的玩家名
+    playerName = localStorage.getItem('currentPlayerName');
+    
+    if (!playerName) {
+        showToast('未登录，请先登录', 'error');
+        window.location.href = '/login.html';
+        return;
+    }
+    
     try {
         await api.joinRoom(roomId, playerName);
         currentRoom = roomId;

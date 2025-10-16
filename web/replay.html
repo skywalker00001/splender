@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>对局复盘 - 璀璨宝石宝可梦</title>
+    <link rel="stylesheet" href="static/css/style.css">
+    <style>
+        .replay-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .replay-header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .replay-game-info h2 {
+            margin: 0 0 10px 0;
+            color: #ecf0f1;
+        }
+
+        .replay-game-meta {
+            display: flex;
+            gap: 20px;
+            color: #95a5a6;
+            font-size: 14px;
+        }
+
+        .replay-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .replay-nav-button {
+            padding: 10px 20px;
+            background: rgba(52, 152, 219, 0.3);
+            border: 2px solid rgba(52, 152, 219, 0.5);
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .replay-nav-button:hover:not(:disabled) {
+            background: rgba(52, 152, 219, 0.5);
+            border-color: #3498db;
+        }
+
+        .replay-nav-button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .replay-turn-selector {
+            padding: 8px 15px;
+            background: rgba(44, 62, 80, 0.8);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .replay-content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
+
+        .replay-sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .replay-turn-list {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 15px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .replay-turn-list h3 {
+            margin: 0 0 15px 0;
+            color: #ecf0f1;
+            font-size: 16px;
+        }
+
+        .replay-turn-item {
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 2px solid transparent;
+        }
+
+        .replay-turn-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .replay-turn-item.active {
+            border-color: #f39c12;
+            background: rgba(243, 156, 18, 0.2);
+        }
+
+        .replay-turn-item-title {
+            font-weight: bold;
+            color: #ecf0f1;
+            margin-bottom: 5px;
+        }
+
+        .replay-turn-item-player {
+            font-size: 13px;
+            color: #95a5a6;
+        }
+
+        .replay-main {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .replay-turn-detail {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 25px;
+        }
+
+        .replay-turn-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .replay-turn-title {
+            font-size: 24px;
+            color: #f39c12;
+            margin: 0;
+        }
+
+        .replay-player-badge {
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            border-radius: 20px;
+            color: white;
+            font-weight: bold;
+        }
+
+        .replay-actions {
+            margin-bottom: 25px;
+        }
+
+        .replay-actions h4 {
+            margin: 0 0 15px 0;
+            color: #ecf0f1;
+        }
+
+        .replay-action-item {
+            padding: 15px;
+            background: rgba(46, 204, 113, 0.15);
+            border-left: 4px solid #2ecc71;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .replay-action-item.failed {
+            background: rgba(231, 76, 60, 0.15);
+            border-left-color: #e74c3c;
+        }
+
+        .replay-action-type {
+            font-weight: bold;
+            color: #2ecc71;
+            margin-bottom: 8px;
+        }
+
+        .replay-action-item.failed .replay-action-type {
+            color: #e74c3c;
+        }
+
+        .replay-action-data {
+            font-size: 14px;
+            color: #ecf0f1;
+            margin-bottom: 5px;
+        }
+
+        .replay-action-message {
+            font-size: 13px;
+            color: #95a5a6;
+            font-style: italic;
+        }
+
+        .replay-state-comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .replay-state-box {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .replay-state-box h4 {
+            margin: 0 0 15px 0;
+            color: #ecf0f1;
+            text-align: center;
+        }
+
+        .replay-state-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .replay-state-item:last-child {
+            border-bottom: none;
+        }
+
+        .replay-state-label {
+            color: #95a5a6;
+        }
+
+        .replay-state-value {
+            color: #ecf0f1;
+            font-weight: bold;
+        }
+
+        .back-button {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            background: rgba(44, 62, 80, 0.9);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .back-button:hover {
+            background: rgba(52, 73, 94, 0.9);
+            border-color: #f39c12;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: #ecf0f1;
+            font-size: 18px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-top: 5px solid #f39c12;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 1200px) {
+            .replay-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .replay-turn-list {
+                max-height: 400px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .replay-state-comparison {
+                grid-template-columns: 1fr;
+            }
+            
+            .replay-header {
+                flex-direction: column;
+                gap: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <a href="/history.html" class="back-button">← 返回历史列表</a>
+
+    <div class="replay-container">
+        <div id="replay-content">
+            <div class="loading">
+                <div class="spinner"></div>
+                <div>加载复盘数据...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="static/js/replay.js"></script>
+</body>
+</html>
+

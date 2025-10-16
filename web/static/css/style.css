@@ -21,6 +21,31 @@ body {
     padding: 20px;
 }
 
+/* 用户信息栏 */
+.user-info-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    padding: 15px 25px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.user-welcome {
+    font-size: 16px;
+    color: #ecf0f1;
+}
+
+.user-welcome strong {
+    color: #f39c12;
+    font-size: 18px;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
 /* 标题样式 */
 .title {
     text-align: center;

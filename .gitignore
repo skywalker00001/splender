@@ -1,0 +1,79 @@
+# 游戏历史记录文件（不上传）
+game_history/
+*.json
+
+# Python 相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# # 虚拟环境
+# venv/
+# ENV/
+# env/
+# .venv
+
+# IDE 相关
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 测试输出
+test/output_*.txt
+test/ai_games_output.txt
+*.log
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 环境变量
+.env
+.env.local
+
+# Flask 相关
+instance/
+.webassets-cache
+
+# Coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+.DS_Store
+Thumbs.db
+

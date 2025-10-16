@@ -18,11 +18,33 @@ import os
 # 添加父目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cuicanbaoshi import BallType, Rarity, PokemonCard, Player, SplendorPokemonGame
+from splendor_pokemon import BallType, Rarity, PokemonCard, Player, SplendorPokemonGame
 from ai_player import AIPlayer, create_ai_player
+from game_history import GameHistory
+from database import game_db
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
+
+# 用户数据管理
+class User:
+    """用户类"""
+    def __init__(self, username):
+        self.username = username
+        self.current_room_id = None  # 当前所在房间ID
+        self.created_at = datetime.now()
+        self.last_login = datetime.now()
+    
+    def to_dict(self):
+        return {
+            "username": self.username,
+            "current_room_id": self.current_room_id,
+            "created_at": self.created_at.isoformat(),
+            "last_login": self.last_login.isoformat()
+        }
+
+users = {}  # username -> User
+user_lock = threading.Lock()
 
 # 游戏房间管理
 game_rooms = {}
@@ -44,6 +66,8 @@ class GameRoom:
         self.max_players = 4  # 默认4人
         self.victory_points = 18  # 默认18分胜利
         self.turn_number = 0  # 回合数
+        # 历史记录
+        self.history = None  # GameHistory实例
         
     def add_player(self, player_name, is_ai=False, ai_difficulty="中等"):
         """添加玩家"""
@@ -74,8 +98,104 @@ class GameRoom:
             self.game = SplendorPokemonGame(self.players, victory_points=self.victory_points)
             self.status = "playing"
             self.turn_number = 1  # 第一回合
+            
+            # 初始化历史记录
+            game_id = f"{self.room_id}_{int(datetime.now().timestamp())}"
+            self.history = GameHistory(
+                game_id=game_id,
+                room_id=self.room_id,
+                players=self.players.copy(),
+                victory_points_goal=self.victory_points
+            )
+            # 记录初始状态
+            self.history.record_initial_state(get_game_state(self.room_id))
+            # 开始第一回合
+            current_player = self.game.get_current_player()
+            self.history.start_turn(1, current_player.name)
+            
             return True
         return False
+    
+    def record_action(self, action_type: str, action_data: dict, result: bool, message: str = ""):
+        """记录游戏动作到历史"""
+        if self.history and self.game:
+            current_player = self.game.get_current_player()
+            player_state = self._get_player_state_dict(current_player)
+            ball_pool = {bt.value: count for bt, count in self.game.ball_pool.items()}
+            
+            # 如果是新的回合，开始新回合记录
+            if action_type in ["take_balls", "buy_card", "reserve_card"] and not self.history.turns[-1].get("states_before"):
+                self.history.record_state_before_action(current_player.name, player_state, ball_pool)
+            
+            self.history.record_action(action_type, action_data, result, message)
+            
+            # 记录动作后状态（在end_turn时统一记录）
+    
+    def record_turn_end(self):
+        """记录回合结束时的状态"""
+        if self.history and self.game:
+            current_player = self.game.get_current_player()
+            player_state = self._get_player_state_dict(current_player)
+            ball_pool = {bt.value: count for bt, count in self.game.ball_pool.items()}
+            
+            self.history.record_state_after_action(current_player.name, player_state, ball_pool)
+            
+            # 开始下一回合
+            if not self.game.game_over:
+                self.turn_number += 1
+                next_player = self.game.get_current_player()
+                self.history.start_turn(self.turn_number, next_player.name)
+    
+    def end_game_and_save_history(self, winner: str, rankings: list) -> str:
+        """结束游戏并保存历史记录，并保存到数据库"""
+        if self.history:
+            self.history.end_game(winner, rankings)
+            filepath = self.history.save_to_file()
+            print(f"✅ 游戏历史已保存到: {filepath}")
+            
+            # 保存到数据库（只为真人玩家，不包括AI）
+            try:
+                game_id = self.history.game_id
+                game_start_time = self.history.start_time
+                game_end_time = self.history.end_time
+                total_turns = len(self.history.turns)
+                
+                # 为每个玩家保存参与记录
+                for rank_info in rankings:
+                    player_name = rank_info['player_name']
+                    
+                    # 跳过AI玩家（AI玩家名称通常包含"AI·"）
+                    if self.is_ai_player(player_name):
+                        continue
+                    
+                    # 保存真人玩家的参与记录
+                    game_db.record_game_participation(
+                        username=player_name,  # 使用玩家名作为用户名
+                        game_id=game_id,
+                        game_history_file=filepath,
+                        player_name=player_name,
+                        final_rank=rank_info['rank'],
+                        final_score=rank_info['victory_points'],
+                        is_winner=(player_name == winner),
+                        game_start_time=game_start_time,
+                        game_end_time=game_end_time,
+                        total_turns=total_turns
+                    )
+                    print(f"  💾 玩家 {player_name} 的数据已保存到数据库")
+            except Exception as e:
+                print(f"⚠️ 保存到数据库时出错: {e}")
+            
+            return filepath
+        return None
+    
+    def _get_player_state_dict(self, player: Player) -> dict:
+        """获取玩家状态字典"""
+        return {
+            "balls": {bt.value: count for bt, count in player.balls.items()},
+            "victory_points": player.victory_points,
+            "owned_cards_count": len(player.display_area),
+            "reserved_cards_count": len(player.reserved_cards)
+        }
     
     def update_config(self, max_players=None, victory_points=None):
         """更新游戏配置（仅房主可用）"""
@@ -113,7 +233,8 @@ class GameRoom:
             "tableau": {
                 str(tier): [
                     {
-                        "name": card.name,
+                        "card_id": card.card_id,  # 唯一ID
+                        "name": card.name,  # 显示名称
                         "level": card.level,
                         "rarity": card.rarity.value,
                         "cost": {ball.value: amount for ball, amount in card.cost.items() if amount > 0},
@@ -133,6 +254,7 @@ class GameRoom:
             "rare_deck_size": len(self.game.rare_deck),
             "legendary_deck_size": len(self.game.legendary_deck),
             "rare_card": {
+                "card_id": self.game.rare_card.card_id,  # 唯一ID
                 "name": self.game.rare_card.name,
                 "level": self.game.rare_card.level,
                 "rarity": self.game.rare_card.rarity.value,
@@ -141,6 +263,7 @@ class GameRoom:
                 "permanent_balls": {ball.value: amount for ball, amount in self.game.rare_card.permanent_balls.items() if amount > 0}
             } if self.game.rare_card else None,
             "legendary_card": {
+                "card_id": self.game.legendary_card.card_id,  # 唯一ID
                 "name": self.game.legendary_card.name,
                 "level": self.game.legendary_card.level,
                 "rarity": self.game.legendary_card.rarity.value,
@@ -153,6 +276,7 @@ class GameRoom:
                     "balls": {ball.value: count for ball, count in player.balls.items() if count > 0},
                     "display_area": [
                         {
+                            "card_id": card.card_id,  # 唯一ID
                             "name": card.name,
                             "level": card.level,
                             "rarity": card.rarity.value,
@@ -166,6 +290,7 @@ class GameRoom:
                     ],
                     "reserved_cards": [
                         {
+                            "card_id": card.card_id,  # 唯一ID
                             "name": card.name,
                             "level": card.level,
                             "cost": {ball.value: amount for ball, amount in card.cost.items() if amount > 0},
@@ -222,6 +347,57 @@ def health_check():
     """健康检查"""
     return jsonify({"status": "ok", "message": "璀璨宝石宝可梦API服务正常"})
 
+@app.route('/api/login', methods=['POST'])
+def login():
+    """用户登录（不存在则创建）"""
+    data = request.get_json()
+    username = data.get('username', '').strip()
+    
+    if not username:
+        return jsonify({"error": "用户名不能为空"}), 400
+    
+    if len(username) > 20:
+        return jsonify({"error": "用户名不能超过20个字符"}), 400
+    
+    with user_lock:
+        # 如果用户不存在，创建新用户
+        if username not in users:
+            users[username] = User(username)
+            is_new_user = True
+        else:
+            # 更新最后登录时间
+            users[username].last_login = datetime.now()
+            is_new_user = False
+        
+        user = users[username]
+        
+        # 检查用户是否有进行中的游戏
+        current_room_status = None
+        if user.current_room_id and user.current_room_id in game_rooms:
+            room = game_rooms[user.current_room_id]
+            # 检查房间状态和用户是否还在房间中
+            if username in room.players and room.status != "finished":
+                current_room_status = {
+                    "room_id": room.room_id,
+                    "status": room.status,
+                    "players": room.players,
+                    "max_players": room.max_players,
+                    "victory_points": room.victory_points,
+                    "is_creator": (room.creator_name == username)
+                }
+        else:
+            # 房间不存在或已结束，清除用户的房间记录
+            user.current_room_id = None
+    
+    return jsonify({
+        "success": True,
+        "message": "登录成功" if not is_new_user else "欢迎新玩家！",
+        "user": user.to_dict(),
+        "is_new_user": is_new_user,
+        "has_active_game": current_room_status is not None,
+        "active_game": current_room_status
+    })
+
 @app.route('/api/rooms', methods=['POST'])
 def create_room():
     """创建游戏房间"""
@@ -245,6 +421,11 @@ def create_room():
         room_id = str(uuid.uuid4())[:8]
         game_rooms[room_id] = GameRoom(room_id, player_name)
         player_to_room[player_name] = room_id
+        
+        # 更新用户的当前房间
+        with user_lock:
+            if player_name in users:
+                users[player_name].current_room_id = room_id
         
     return jsonify({
         "room_id": room_id,
@@ -283,6 +464,11 @@ def join_room(room_id):
         
         player_to_room[player_name] = room_id
         room.last_activity = datetime.now()
+        
+        # 更新用户的当前房间
+        with user_lock:
+            if player_name in users:
+                users[player_name].current_room_id = room_id
         
     return jsonify({
         "message": "成功加入房间",
@@ -388,9 +574,12 @@ def kick_player(room_id):
         if not room.remove_player(target_name):
             return jsonify({"error": "玩家不在房间中"}), 400
         
-        # 清除被踢玩家的映射
+        # 清除被踢玩家的映射和用户的当前房间
         if target_name in player_to_room and player_to_room[target_name] == room_id:
             del player_to_room[target_name]
+        with user_lock:
+            if target_name in users:
+                users[target_name].current_room_id = None
             
         room.last_activity = datetime.now()
         
@@ -417,10 +606,13 @@ def leave_room(room_id):
         
         # 如果是房主离开，删除整个房间
         if room.creator_name == player_name:
-            # 清除所有玩家的映射
+            # 清除所有玩家的映射和用户的当前房间
             for p in room.players:
                 if p in player_to_room and player_to_room[p] == room_id:
                     del player_to_room[p]
+                with user_lock:
+                    if p in users:
+                        users[p].current_room_id = None
             del game_rooms[room_id]
             return jsonify({
                 "message": "房主离开，房间已解散",
@@ -431,9 +623,12 @@ def leave_room(room_id):
         if not room.remove_player(player_name):
             return jsonify({"error": "玩家不在房间中"}), 400
         
-        # 清除玩家映射
+        # 清除玩家映射和用户的当前房间
         if player_name in player_to_room and player_to_room[player_name] == room_id:
             del player_to_room[player_name]
+        with user_lock:
+            if player_name in users:
+                users[player_name].current_room_id = None
             
         room.last_activity = datetime.now()
         
@@ -459,10 +654,13 @@ def delete_room(room_id):
         if room.creator_name != player_name:
             return jsonify({"error": "只有房主可以删除房间"}), 403
         
-        # 清除所有玩家的映射
+        # 清除所有玩家的映射和用户的当前房间
         for p in room.players:
             if p in player_to_room and player_to_room[p] == room_id:
                 del player_to_room[p]
+            with user_lock:
+                if p in users:
+                    users[p].current_room_id = None
         
         # 删除房间
         del game_rooms[room_id]
@@ -614,45 +812,18 @@ def execute_ai_turn(room_id):
                 
             elif action == "buy_card":
                 card_info = data.get("card")
-                # 查找卡牌
-                target_card = None
-                # 先检查桌面卡牌
-                for tier, cards in room.game.tableau.items():
-                    for card in cards:
-                        if card.name == card_info['name']:
-                            target_card = card
-                            break
-                    if target_card:
-                        break
-                
-                # 检查稀有/传说
-                if not target_card:
-                    if room.game.rare_card and room.game.rare_card.name == card_info['name']:
-                        target_card = room.game.rare_card
-                    elif room.game.legendary_card and room.game.legendary_card.name == card_info['name']:
-                        target_card = room.game.legendary_card
-                
-                # 如果没找到，检查保留卡牌
-                if not target_card:
-                    for card in current_player.reserved_cards:
-                        if card.name == card_info['name']:
-                            target_card = card
-                            break
+                # 使用card_id查找卡牌
+                card_id = card_info.get('card_id')
+                target_card = room.game.find_card_by_id(card_id, current_player)
                 
                 if target_card:
                     room.game.buy_card(target_card)
                     
             elif action == "reserve_card":
                 card_info = data.get("card")
-                # 查找卡牌
-                target_card = None
-                for tier, cards in room.game.tableau.items():
-                    for card in cards:
-                        if card.name == card_info['name']:
-                            target_card = card
-                            break
-                    if target_card:
-                        break
+                # 使用card_id查找卡牌
+                card_id = card_info.get('card_id')
+                target_card = room.game.find_card_by_id(card_id, current_player)
                 
                 if target_card:
                     room.game.reserve_card(target_card)
@@ -696,7 +867,14 @@ def take_gems(room_id):
                     ball_types.append(ball_type)
                     break
                     
-        if room.game.take_balls(ball_types):
+        result = room.game.take_balls(ball_types)
+        
+        # 记录历史
+        room.record_action("take_balls", {
+            "ball_types": [bt.value for bt in ball_types]
+        }, result, "拿取球" if result else "拿取球失败")
+        
+        if result:
             room.last_activity = datetime.now()
             return jsonify({
                 "success": True,
@@ -723,36 +901,55 @@ def buy_card(room_id):
         if not room.game or room.game.get_current_player().name != player_name:
             return jsonify({"error": "不是你的回合"}), 400
             
-        # 查找卡牌 (场上、稀有、传说、预定手牌)
-        target_card = None
-        # 检查场上卡牌
-        for tier, cards in room.game.tableau.items():
-            for card in cards:
-                if card.name == card_info['name']:
-                    target_card = card
-                    break
-            if target_card:
-                break
-        
-        # 检查稀有/传说
-        if not target_card:
-            if room.game.rare_card and room.game.rare_card.name == card_info['name']:
-                target_card = room.game.rare_card
-            elif room.game.legendary_card and room.game.legendary_card.name == card_info['name']:
-                target_card = room.game.legendary_card
-        
-        # 检查玩家手牌
-        if not target_card:
+        # 使用card_id查找卡牌
+        card_id = card_info.get('card_id')
+        if not card_id:
+            # 兼容旧的name方式（如果前端还在使用name）
+            card_name = card_info.get('name')
+            if card_name:
+                # 通过name查找（向后兼容）
+                target_card = None
+                for tier, cards in room.game.tableau.items():
+                    for card in cards:
+                        if card.name == card_name:
+                            target_card = card
+                            break
+                    if target_card:
+                        break
+                
+                if not target_card and room.game.rare_card and room.game.rare_card.name == card_name:
+                    target_card = room.game.rare_card
+                elif not target_card and room.game.legendary_card and room.game.legendary_card.name == card_name:
+                    target_card = room.game.legendary_card
+                
+                if not target_card:
+                    player = room.game.get_current_player()
+                    for card in player.reserved_cards:
+                        if card.name == card_name:
+                            target_card = card
+                            break
+            else:
+                return jsonify({"error": "缺少card_id或name"}), 400
+        else:
             player = room.game.get_current_player()
-            for card in player.reserved_cards:
-                if card.name == card_info['name']:
-                    target_card = card
-                    break
+            target_card = room.game.find_card_by_id(card_id, player)
                 
         if not target_card:
             return jsonify({"error": "卡牌不存在"}), 400
             
-        if room.game.buy_card(target_card):
+        result = room.game.buy_card(target_card)
+        
+        # 记录历史（包含card_id用于准确回放）
+        room.record_action("buy_card", {
+            "card": {
+                "card_id": target_card.card_id,
+                "name": target_card.name,
+                "level": target_card.level,
+                "victory_points": target_card.victory_points
+            }
+        }, result, f"购买{target_card.name}" if result else "购买卡牌失败")
+        
+        if result:
             room.last_activity = datetime.now()
             return jsonify({
                 "success": True,
@@ -796,14 +993,23 @@ def reserve_card(room_id):
             else:
                 return jsonify({"error": f"Lv{level}牌堆已空"}), 400
         else:
-            # 查找场上卡牌
-            for tier, cards in room.game.tableau.items():
-                for card in cards:
-                    if card.name == card_info['name']:
-                        target_card = card
-                        break
-                if target_card:
-                    break
+            # 使用card_id查找卡牌
+            card_id = card_info.get('card_id')
+            if not card_id:
+                # 兼容旧的name方式
+                card_name = card_info.get('name')
+                if card_name:
+                    for tier, cards in room.game.tableau.items():
+                        for card in cards:
+                            if card.name == card_name:
+                                target_card = card
+                                break
+                        if target_card:
+                            break
+                else:
+                    return jsonify({"error": "缺少card_id或name"}), 400
+            else:
+                target_card = room.game.find_card_by_id(card_id)
             
             # 检查是否找到卡牌
             if not target_card:
@@ -813,7 +1019,19 @@ def reserve_card(room_id):
             if target_card.level >= 4:
                 return jsonify({"error": "稀有/传说卡牌（Lv4/Lv5）不可预购"}), 400
             
-        if room.game.reserve_card(target_card):
+        result = room.game.reserve_card(target_card)
+        
+        # 记录历史（包含card_id用于准确回放）
+        room.record_action("reserve_card", {
+            "card": {
+                "card_id": target_card.card_id,
+                "name": target_card.name,
+                "level": target_card.level
+            },
+            "blind": blind
+        }, result, f"预购{target_card.name}" if result else "预购卡牌失败")
+        
+        if result:
             room.last_activity = datetime.now()
             return jsonify({
                 "success": True,
@@ -830,6 +1048,9 @@ def evolve_card(room_id):
     """进化卡牌"""
     data = request.get_json()
     player_name = data.get('player_name')
+    
+    # 优先使用card_id，fallback到card_name（向后兼容）
+    base_card_id = data.get('card_id')
     base_card_name = data.get('card_name')
     
     with room_lock:
@@ -842,12 +1063,19 @@ def evolve_card(room_id):
         
         player = room.game.get_current_player()
         
-        # 查找基础卡（展示区）
+        # 查找基础卡（展示区）- 优先使用card_id
         base_card = None
-        for card in player.display_area:
-            if card.name == base_card_name:
-                base_card = card
-                break
+        if base_card_id:
+            for card in player.display_area:
+                if card.card_id == base_card_id:
+                    base_card = card
+                    break
+        elif base_card_name:
+            # fallback: 使用name查找（向后兼容）
+            for card in player.display_area:
+                if card.name == base_card_name:
+                    base_card = card
+                    break
         
         if not base_card:
             return jsonify({"error": "未找到要进化的卡牌"}), 400
@@ -910,6 +1138,21 @@ def evolve_card(room_id):
             if target_card in player.reserved_cards:
                 player.reserved_cards.remove(target_card)
             
+            # 记录进化历史（包含card_id用于准确回放）
+            room.record_action("evolve_card", {
+                "base_card": {
+                    "card_id": base_card.card_id,
+                    "name": base_card.name,
+                    "level": base_card.level
+                },
+                "target_card": {
+                    "card_id": target_card.card_id,
+                    "name": target_card.name,
+                    "level": target_card.level,
+                    "victory_points": target_card.victory_points
+                }
+            }, True, f"{base_card.name} 进化为 {target_card.name}")
+            
             room.last_activity = datetime.now()
             
             return jsonify({
@@ -943,6 +1186,11 @@ def return_balls(room_id):
                     break
         
         if room.game.return_balls(balls_dict):
+            # 记录历史
+            room.record_action("return_balls", {
+                "balls_returned": {ball.value: amount for ball, amount in balls_dict.items()}
+            }, True, f"放回{sum(balls_dict.values())}个球")
+            
             room.last_activity = datetime.now()
             return jsonify({
                 "success": True,
@@ -974,15 +1222,24 @@ def end_turn(room_id):
         # end_turn 已经包含了进化检查、球数上限检查、胜利检查等
         room.game.end_turn()
         
+        # 记录回合结束状态
+        room.record_turn_end()
+        
         # 如果轮到下一轮（最后一个玩家结束回合），回合数+1
-        if current_index == len(room.game.players) - 1:
-            room.turn_number += 1
+        # (已在record_turn_end中处理)
         
         # 获取下一个玩家
         if not room.game.game_over:
             next_player = room.game.get_current_player().name
         else:
             next_player = None
+            # 游戏结束，保存历史
+            if room.history:
+                rankings = room.game.get_final_rankings()
+                room.end_game_and_save_history(
+                    winner=room.game.winner.name,
+                    rankings=rankings
+                )
             
         room.last_activity = datetime.now()
         
@@ -1079,6 +1336,229 @@ def list_rooms():
                 })
                 
     return jsonify({"rooms": rooms})
+
+# =======================
+# 历史记录API
+# =======================
+
+@app.route('/api/history/list', methods=['GET'])
+def list_game_histories():
+    """获取所有历史记录列表"""
+    try:
+        histories = GameHistory.list_all_histories()
+        return jsonify({
+            "success": True,
+            "histories": histories
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/api/history/<game_id>', methods=['GET'])
+def get_game_history(game_id):
+    """获取指定游戏的详细历史记录"""
+    try:
+        # 查找对应的历史文件
+        histories = GameHistory.list_all_histories()
+        target_file = None
+        for history in histories:
+            if history['game_id'] == game_id:
+                target_file = history['filepath']
+                break
+        
+        if not target_file:
+            return jsonify({
+                "success": False,
+                "error": "历史记录不存在"
+            }), 404
+        
+        # 加载完整历史
+        history = GameHistory.load_from_file(target_file)
+        return jsonify({
+            "success": True,
+            "history": history.to_dict()
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/api/history/<game_id>/turn/<int:turn_number>', methods=['GET'])
+def get_game_history_turn(game_id, turn_number):
+    """获取指定游戏的某一回合详细信息"""
+    try:
+        histories = GameHistory.list_all_histories()
+        target_file = None
+        for history in histories:
+            if history['game_id'] == game_id:
+                target_file = history['filepath']
+                break
+        
+        if not target_file:
+            return jsonify({
+                "success": False,
+                "error": "历史记录不存在"
+            }), 404
+        
+        history = GameHistory.load_from_file(target_file)
+        
+        # 查找指定回合
+        turn_data = None
+        for turn in history.turns:
+            if turn['turn'] == turn_number:
+                turn_data = turn
+                break
+        
+        if not turn_data:
+            return jsonify({
+                "success": False,
+                "error": f"回合{turn_number}不存在"
+            }), 404
+        
+        return jsonify({
+            "success": True,
+            "turn": turn_data
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+# ============ 用户数据库API ============
+
+@app.route('/api/users/<username>', methods=['GET'])
+def get_user_info(username):
+    """获取用户信息和统计数据"""
+    try:
+        user = game_db.get_user_by_username(username)
+        if not user:
+            return jsonify({
+                "success": False,
+                "error": "用户不存在"
+            }), 404
+        
+        # 获取统计信息
+        stats = game_db.get_user_statistics(username)
+        
+        return jsonify({
+            "success": True,
+            "user": {
+                "username": user['username'],
+                "created_at": user['created_at'],
+                "last_login": user['last_login'],
+                "total_games": user['total_games'],
+                "total_wins": user['total_wins'],
+                "total_points": user['total_points']
+            },
+            "statistics": stats
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/api/users/<username>/games', methods=['GET'])
+def get_user_games(username):
+    """获取用户的游戏历史列表"""
+    try:
+        # 获取分页参数
+        limit = request.args.get('limit', 20, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        
+        # 获取游戏历史
+        games = game_db.get_user_game_history(username, limit=limit, offset=offset)
+        
+        return jsonify({
+            "success": True,
+            "total": len(games),
+            "games": games
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/api/users/<username>/statistics', methods=['GET'])
+def get_user_statistics_api(username):
+    """获取用户详细统计信息"""
+    try:
+        stats = game_db.get_user_statistics(username)
+        if not stats:
+            return jsonify({
+                "success": False,
+                "error": "用户不存在"
+            }), 404
+        
+        return jsonify({
+            "success": True,
+            "statistics": stats
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/api/games/<game_id>/details', methods=['GET'])
+def get_game_details(game_id):
+    """获取游戏详细信息（包括所有参与玩家）"""
+    try:
+        details = game_db.get_game_details(game_id)
+        if not details:
+            return jsonify({
+                "success": False,
+                "error": "游戏不存在"
+            }), 404
+        
+        return jsonify({
+            "success": True,
+            "game": details
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/api/users/login', methods=['POST'])
+def user_login():
+    """用户登录（如果不存在则自动创建）"""
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        
+        if not username:
+            return jsonify({
+                "success": False,
+                "error": "用户名不能为空"
+            }), 400
+        
+        # 获取或创建用户
+        user = game_db.get_or_create_user(username)
+        
+        return jsonify({
+            "success": True,
+            "user": {
+                "username": user['username'],
+                "created_at": user['created_at'],
+                "last_login": user['last_login'],
+                "total_games": user['total_games'],
+                "total_wins": user['total_wins'],
+                "total_points": user['total_points']
+            },
+            "message": "登录成功" if user['total_games'] > 0 else "欢迎新玩家！"
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 if __name__ == '__main__':
     print("🌟 璀璨宝石宝可梦API服务启动中...")

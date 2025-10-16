@@ -4,7 +4,13 @@
 测试进化机制和新规则
 """
 
-from cuicanbaoshi import *
+import sys
+import os
+
+# 添加父目录到路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from splendor_pokemon import *
 
 def test_basic_game():
     """测试基本游戏流程"""
@@ -17,7 +23,7 @@ def test_basic_game():
     player2 = game.players[1]
     
     print(f"\n初始状态:")
-    print(f"  胜利目标: {game.VICTORY_POINTS_GOAL}分")
+    print(f"  胜利目标: {game.victory_points_goal}分")
     print(f"  球池: {[(b.value, c) for b, c in game.ball_pool.items()]}")
     print(f"  场面卡牌数: Lv1={len(game.tableau[1])}, Lv2={len(game.tableau[2])}, Lv3={len(game.tableau[3])}")
     print(f"  稀有卡: {game.rare_card.name if game.rare_card else '无'}")
@@ -26,7 +32,7 @@ def test_basic_game():
     # 测试拿球
     print("\n🎲 测试拿球规则:")
     print(f"  玩家1尝试拿3种不同颜色的球...")
-    result = game.take_balls([BallType.RED, BallType.BLUE, BallType.GREEN])
+    result = game.take_balls([BallType.RED, BallType.BLUE, BallType.YELLOW])
     print(f"  {'✅ 成功' if result else '❌ 失败'}")
     print(f"  玩家1的球: {[(b.value, c) for b, c in player1.balls.items() if c > 0]}")
     
@@ -128,7 +134,7 @@ def test_ball_limit():
     # 给玩家超过10个球
     player.balls[BallType.RED] = 4
     player.balls[BallType.BLUE] = 3
-    player.balls[BallType.GREEN] = 2
+    player.balls[BallType.YELLOW] = 2
     player.balls[BallType.YELLOW] = 2
     player.balls[BallType.MASTER] = 1
     

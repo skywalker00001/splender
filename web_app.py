@@ -31,8 +31,29 @@ for rule in backend_app.url_map.iter_rules():
 
 @app.route('/')
 def index():
-    """首页"""
-    return render_template('index.html')
+    """首页 - 重定向到登录页"""
+    from flask import redirect
+    return redirect('/login.html')
+
+@app.route('/login.html')
+def login_page():
+    """登录页面"""
+    return send_from_directory('web', 'login.html')
+
+@app.route('/main.html')
+def main_page():
+    """主应用页面"""
+    return send_from_directory('web', 'main.html')
+
+@app.route('/history.html')
+def history_page():
+    """历史对局列表页面"""
+    return send_from_directory('web', 'history.html')
+
+@app.route('/replay.html')
+def replay_page():
+    """对局复盘页面"""
+    return send_from_directory('web', 'replay.html')
 
 @app.route('/health')
 def web_health():
