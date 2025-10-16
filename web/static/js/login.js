@@ -25,8 +25,8 @@ class LoginManager {
         // 自动聚焦到输入框
         usernameInput.focus();
         
-        // 检查是否已有localStorage中的用户名（用于自动填充）
-        const savedUsername = localStorage.getItem('currentPlayerName');
+        // 检查是否已有sessionStorage中的用户名（用于自动填充）
+        const savedUsername = sessionStorage.getItem('currentPlayerName');
         if (savedUsername) {
             usernameInput.value = savedUsername;
             usernameInput.select();
@@ -74,9 +74,9 @@ class LoginManager {
                 throw new Error(data.error || '登录失败');
             }
             
-            // 保存用户信息到localStorage
-            localStorage.setItem('currentPlayerName', username);
-            localStorage.setItem('userData', JSON.stringify(data.user));
+            // 保存用户信息到sessionStorage（每个标签页独立，支持多开）
+            sessionStorage.setItem('currentPlayerName', username);
+            sessionStorage.setItem('userData', JSON.stringify(data.user));
             
             // 显示欢迎消息
             this.showSuccess(data.message);

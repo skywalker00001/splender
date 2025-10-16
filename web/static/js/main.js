@@ -4,7 +4,7 @@
 
 // 检查用户是否已登录
 function checkLoginStatus() {
-    const currentPlayerName = localStorage.getItem('currentPlayerName');
+    const currentPlayerName = sessionStorage.getItem('currentPlayerName');
     if (!currentPlayerName) {
         // 未登录，跳转到登录页面
         window.location.href = '/login.html';
@@ -25,11 +25,17 @@ let playerName = null;
 let isCreator = false;
 let roomPollingInterval = null;
 
-// localStorage 键名
+// 房间列表分页状态
+let allRooms = [];  // 所有房间
+let filteredRooms = [];  // 过滤后的房间
+let currentPage = 1;
+const ROOMS_PER_PAGE = 10;
+
+// sessionStorage 键名（每个标签页独立，支持多开）
 const STORAGE_KEY = 'splendor_game_session';
 
 /**
- * 保存游戏会话到localStorage
+ * 保存游戏会话到sessionStorage
  */
 function saveGameSession(roomId, playerName) {
     const session = {
@@ -37,7 +43,7 @@ function saveGameSession(roomId, playerName) {
         playerName: playerName,
         timestamp: Date.now()
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
 }
 
 /**
@@ -45,7 +51,7 @@ function saveGameSession(roomId, playerName) {
  */
 function getGameSession() {
     try {
-        const data = localStorage.getItem(STORAGE_KEY);
+        const data = sessionStorage.getItem(STORAGE_KEY);
         if (!data) return null;
         
         const session = JSON.parse(data);
@@ -69,7 +75,7 @@ function getGameSession() {
  * 清除游戏会话
  */
 function clearGameSession() {
-    localStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY);
 }
 
 /**
@@ -111,7 +117,7 @@ function showToast(message, type = 'info') {
  */
 async function initApp() {
     // 显示当前登录用户
-    const currentPlayerName = localStorage.getItem('currentPlayerName');
+    const currentPlayerName = sessionStorage.getItem('currentPlayerName');
     if (currentPlayerName) {
         playerName = currentPlayerName;
         const userNameElement = document.getElementById('current-user-name');
@@ -249,7 +255,20 @@ function bindEventListeners() {
     document.getElementById('logout-btn').addEventListener('click', handleLogout);
     document.getElementById('create-room-btn').addEventListener('click', handleCreateRoom);
     document.getElementById('show-rooms-btn').addEventListener('click', handleShowRooms);
-    document.getElementById('refresh-rooms-btn').addEventListener('click', loadRoomsList);
+    document.getElementById('refresh-rooms-btn').addEventListener('click', () => loadRoomsList(true));
+    document.getElementById('search-rooms-btn').addEventListener('click', handleSearchRooms);
+    document.getElementById('back-to-lobby-from-rooms-btn').addEventListener('click', handleBackToLobby);
+    
+    // 搜索框回车搜索
+    document.getElementById('room-search-input').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            handleSearchRooms();
+        }
+    });
+    
+    // 分页按钮
+    document.getElementById('prev-page-btn').addEventListener('click', () => changePage(-1));
+    document.getElementById('next-page-btn').addEventListener('click', () => changePage(1));
     
     // 大厅规则和卡库按钮
     const viewRulesLobbyBtn = document.getElementById('view-rules-lobby-btn');
@@ -261,7 +280,15 @@ function bindEventListeners() {
     
     // 房间界面
     document.getElementById('copy-room-id-btn').addEventListener('click', handleCopyRoomId);
-    document.getElementById('start-game-btn').addEventListener('click', handleStartGame);
+    
+    // 开始游戏按钮 - 添加详细调试
+    const startGameBtn = document.getElementById('start-game-btn');
+    console.log('🔗 绑定开始游戏按钮:', startGameBtn);
+    startGameBtn.addEventListener('click', function(e) {
+        console.log('🖱️ 开始游戏按钮点击事件触发!', e);
+        handleStartGame();
+    });
+    
     document.getElementById('leave-room-btn').addEventListener('click', handleLeaveRoom);
     document.getElementById('delete-room-btn').addEventListener('click', handleDeleteRoom);
     
@@ -305,9 +332,9 @@ function bindEventListeners() {
 function handleLogout() {
     // 确认退出
     if (confirm('确定要退出登录吗？')) {
-        // 清除localStorage
-        localStorage.removeItem('currentPlayerName');
-        localStorage.removeItem('userData');
+        // 清除sessionStorage
+        sessionStorage.removeItem('currentPlayerName');
+        sessionStorage.removeItem('userData');
         clearGameSession();
         
         // 跳转到登录页面
@@ -319,8 +346,8 @@ function handleLogout() {
  * 创建房间
  */
 async function handleCreateRoom() {
-    // 从localStorage获取玩家名
-    playerName = localStorage.getItem('currentPlayerName');
+    // 从sessionStorage获取玩家名
+    playerName = sessionStorage.getItem('currentPlayerName');
     
     if (!playerName) {
         showToast('未登录，请先登录', 'error');
@@ -348,56 +375,153 @@ async function handleCreateRoom() {
  * 显示房间列表
  */
 async function handleShowRooms() {
-    const nameInput = document.getElementById('player-name-input');
-    playerName = nameInput.value.trim();
-    
-    if (!playerName) {
-        showToast('请输入你的名字', 'error');
+    if (!checkLoginStatus()) {
         return;
     }
+    
+    // 清空搜索框
+    document.getElementById('room-search-input').value = '';
+    currentPage = 1;
 
     document.getElementById('rooms-list').style.display = 'block';
-    await loadRoomsList();
+    await loadRoomsList(true);
+}
+
+/**
+ * 返回大厅
+ */
+function handleBackToLobby() {
+    document.getElementById('rooms-list').style.display = 'none';
+}
+
+/**
+ * 处理搜索房间
+ */
+function handleSearchRooms() {
+    currentPage = 1;  // 搜索时重置到第一页
+    filterAndDisplayRooms();
+}
+
+/**
+ * 切换页码
+ */
+function changePage(delta) {
+    const totalPages = Math.ceil(filteredRooms.length / ROOMS_PER_PAGE) || 1;
+    currentPage = Math.max(1, Math.min(currentPage + delta, totalPages));
+    displayRoomsPage();
 }
 
 /**
  * 加载房间列表
+ * @param {boolean} refresh - 是否从服务器刷新数据
  */
-async function loadRoomsList() {
+async function loadRoomsList(refresh = false) {
     try {
-        const result = await api.getRooms();
-        const container = document.getElementById('rooms-container');
-        container.innerHTML = '';
-
-        if (result.rooms.length === 0) {
-            container.innerHTML = '<p style="text-align: center; opacity: 0.7;">暂无可用房间</p>';
-            return;
+        if (refresh) {
+            showToast('正在刷新房间列表...', 'info');
+            const result = await api.getRooms();
+            allRooms = result.rooms || [];
         }
+        
+        // 应用搜索过滤
+        filterAndDisplayRooms();
+    } catch (error) {
+        console.error('加载房间列表失败:', error);
+        showToast('加载房间列表失败', 'error');
+    }
+}
 
-        result.rooms.forEach(room => {
+/**
+ * 过滤并显示房间
+ */
+function filterAndDisplayRooms() {
+    const searchTerm = document.getElementById('room-search-input').value.trim().toLowerCase();
+    
+    // 过滤房间
+    if (searchTerm) {
+        filteredRooms = allRooms.filter(room => {
+            const roomId = room.room_id.toLowerCase();
+            const creator = room.creator.toLowerCase();
+            return roomId.includes(searchTerm) || creator.includes(searchTerm);
+        });
+    } else {
+        filteredRooms = [...allRooms];
+    }
+    
+    // 重置到第一页
+    currentPage = 1;
+    displayRoomsPage();
+}
+
+/**
+ * 显示当前页的房间
+ */
+function displayRoomsPage() {
+    const container = document.getElementById('rooms-container');
+    container.innerHTML = '';
+    
+    // 计算总页数
+    const totalPages = Math.ceil(filteredRooms.length / ROOMS_PER_PAGE) || 1;
+    
+    // 显示房间
+    if (filteredRooms.length === 0) {
+        container.innerHTML = '<p style="text-align: center; opacity: 0.7; font-size: 1.5em; padding: 30px;">暂无可用房间</p>';
+    } else {
+        const startIndex = (currentPage - 1) * ROOMS_PER_PAGE;
+        const endIndex = Math.min(startIndex + ROOMS_PER_PAGE, filteredRooms.length);
+        const currentRooms = filteredRooms.slice(startIndex, endIndex);
+        
+        currentRooms.forEach((room, index) => {
             const roomDiv = document.createElement('div');
             roomDiv.className = 'room-item';
-            const maxPlayers = room.max_players || 4;  // 默认4人，兼容旧数据
+            const maxPlayers = room.max_players || 4;
+            const victoryPoints = room.victory_points || 18;
+            const statusBadge = room.status === 'playing' ? '<span style="color: #e74c3c;">🎮 游戏中</span>' : '<span style="color: #2ecc71;">⏳ 等待中</span>';
+            
             roomDiv.innerHTML = `
                 <div class="room-item-info">
-                    <strong>房间号: ${room.room_id}</strong><br>
-                    <span>房主: ${room.creator} | 玩家: ${room.player_count}/${maxPlayers}</span>
+                    <div style="margin-bottom: 10px;">
+                        <strong style="font-size: 1.3em;">房间号: ${room.room_id}</strong>
+                        <span style="margin-left: 15px;">${statusBadge}</span>
+                    </div>
+                    <div style="color: rgba(255,255,255,0.8);">
+                        <span>👤 房主: ${room.creator}</span> | 
+                        <span>👥 玩家: ${room.player_count}/${maxPlayers}</span> | 
+                        <span>🏆 目标: ${victoryPoints}分</span>
+                    </div>
                 </div>
-                <button class="btn btn-primary btn-small" onclick="joinRoom('${room.room_id}')">加入</button>
+                <button class="btn btn-primary btn-small" onclick="joinRoom('${room.room_id}')" ${room.status === 'playing' ? 'disabled' : ''}>
+                    ${room.status === 'playing' ? '进行中' : '加入'}
+                </button>
             `;
             container.appendChild(roomDiv);
         });
-    } catch (error) {
-        showToast(`加载房间列表失败: ${error.message}`, 'error');
     }
+    
+    // 更新分页控件
+    updatePaginationControls(totalPages);
+}
+
+/**
+ * 更新分页控件
+ */
+function updatePaginationControls(totalPages) {
+    const prevBtn = document.getElementById('prev-page-btn');
+    const nextBtn = document.getElementById('next-page-btn');
+    const pageInfo = document.getElementById('page-info');
+    
+    prevBtn.disabled = (currentPage <= 1);
+    nextBtn.disabled = (currentPage >= totalPages);
+    
+    pageInfo.textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页 (共 ${filteredRooms.length} 个房间)`;
 }
 
 /**
  * 加入房间
  */
 window.joinRoom = async function(roomId) {
-    // 确保使用localStorage中的玩家名
-    playerName = localStorage.getItem('currentPlayerName');
+    // 确保使用sessionStorage中的玩家名
+    playerName = sessionStorage.getItem('currentPlayerName');
     
     if (!playerName) {
         showToast('未登录，请先登录', 'error');
@@ -521,15 +645,46 @@ async function updateRoomInfo() {
         
         // 更新开始游戏按钮 - 必须达到设置的人数才能开始
         const startBtn = document.getElementById('start-game-btn');
+        console.log('=== 检查开始按钮状态 ===');
+        console.log('当前玩家名:', playerName);
+        console.log('房主名称:', state.creator_name);
+        console.log('isCreator变量:', isCreator);
+        console.log('玩家数量:', state.players.length);
+        console.log('最大玩家数:', maxPlayers);
+        console.log('玩家列表:', state.players);
+        console.log('房间状态:', state.status);
+        
+        // 从服务器返回的状态判断是否为房主（更可靠）
+        const actuallyIsCreator = (state.creator_name === playerName);
+        if (actuallyIsCreator !== isCreator) {
+            console.warn('⚠️ isCreator变量与服务器状态不一致！');
+            console.warn('isCreator变量:', isCreator);
+            console.warn('服务器判断:', actuallyIsCreator);
+            // 修正isCreator变量
+            isCreator = actuallyIsCreator;
+        }
+        
         if (isCreator && state.players.length === maxPlayers) {
+            console.log('✅ 启用开始按钮');
             startBtn.disabled = false;
+            // 如果不是正在启动中，确保按钮文本正确
+            if (!isStartingGame) {
+                startBtn.textContent = '开始游戏';
+            }
         } else {
+            console.log('❌ 禁用开始按钮, 原因:', !isCreator ? '不是房主' : '人数不足');
             startBtn.disabled = true;
+            // 如果不是正在启动中，确保按钮文本正确
+            if (!isStartingGame) {
+                startBtn.textContent = '开始游戏';
+            }
         }
         
         // 如果游戏已经开始，切换到游戏界面
         if (state.status === 'playing') {
+            console.log('🎮 检测到游戏已开始，准备跳转到游戏界面');
             stopRoomPolling();
+            isStartingGame = false;  // 重置标志
             switchScreen('game-screen');
             gameUI.startPolling(currentRoom, playerName);
             showToast(`游戏开始！当前玩家: ${state.current_player}`, 'success');
@@ -558,15 +713,64 @@ function handleCopyRoomId() {
     });
 }
 
+// 防止重复点击的标志
+let isStartingGame = false;
+
 /**
  * 开始游戏
  */
 async function handleStartGame() {
+    console.log('=== 🎮 开始游戏按钮被点击 ===');
+    
+    // 防止重复点击
+    if (isStartingGame) {
+        console.warn('⚠️ 游戏正在启动中，请勿重复点击');
+        return;
+    }
+    
+    console.log('当前房间:', currentRoom);
+    console.log('玩家名:', playerName);
+    console.log('isCreator:', isCreator);
+    
+    // 检查按钮状态
+    const startBtn = document.getElementById('start-game-btn');
+    console.log('按钮disabled状态:', startBtn ? startBtn.disabled : 'null');
+    
+    if (!currentRoom || !playerName) {
+        console.error('❌ 缺少必要信息:', { currentRoom, playerName });
+        showToast('房间信息或玩家信息缺失', 'error');
+        return;
+    }
+    
     try {
-        await api.startGame(currentRoom, playerName);
-        showToast('游戏开始！', 'success');
+        isStartingGame = true;  // 设置标志，防止重复点击
+        if (startBtn) {
+            startBtn.disabled = true;  // 禁用按钮
+            startBtn.textContent = '🔄 启动中...';
+        }
+        
+        console.log('📡 正在调用API...');
+        console.log('API路径:', `/api/rooms/${currentRoom}/start`);
+        console.log('请求参数:', { player_name: playerName });
+        
+        const result = await api.startGame(currentRoom, playerName);
+        console.log('✅ 开始游戏成功:', result);
+        showToast('游戏开始！正在加载...', 'success');
+        
+        // 等待轮询检测到游戏状态变化并自动跳转
+        // updateRoomInfo 会检测 status === 'playing' 并自动跳转
+        
     } catch (error) {
+        console.error('❌ 开始游戏失败:', error);
+        console.error('错误详情:', error.message, error.stack);
         showToast(`开始游戏失败: ${error.message}`, 'error');
+        
+        // 恢复按钮状态
+        isStartingGame = false;
+        if (startBtn) {
+            startBtn.textContent = '开始游戏';
+            // 根据条件恢复按钮状态（会被下次轮询更新）
+        }
     }
 }
 
@@ -590,20 +794,28 @@ async function handleAddBot(difficulty) {
 }
 
 /**
- * 一键添加全部机器人（补满到4人）
+ * 一键添加全部机器人（补满到配置的人数）
  */
 async function handleAddAllBots(difficulty) {
+    console.log('=== 🚀 一键补满按钮被点击 ===');
+    console.log('难度:', difficulty);
+    console.log('当前房间:', currentRoom);
+    
     if (!currentRoom) {
+        console.error('❌ 当前不在房间中');
         showToast('当前不在房间中', 'error');
         return;
     }
 
     try {
+        console.log('📡 正在调用一键补满API...');
         const result = await api.addAllBots(currentRoom, difficulty);
+        console.log('✅ 一键补满成功:', result);
         showToast(result.message, 'success');
         // 立即更新房间状态
         await updateRoomInfo();
     } catch (error) {
+        console.error('❌ 一键添加机器人失败:', error);
         showToast(`一键添加机器人失败: ${error.message}`, 'error');
     }
 }
@@ -612,16 +824,27 @@ async function handleAddAllBots(difficulty) {
  * 踢出玩家
  */
 async function handleKickPlayer(targetPlayer) {
+    console.log('=== 👢 踢出玩家被点击 ===');
+    console.log('目标玩家:', targetPlayer);
+    console.log('房主:', playerName);
+    console.log('当前房间:', currentRoom);
+    
     if (!confirm(`确定要踢出玩家 ${targetPlayer} 吗？`)) {
+        console.log('❌ 用户取消踢出');
         return;
     }
+    
+    console.log('✅ 用户确认踢出');
 
     try {
+        console.log('📡 正在调用踢出玩家API...');
         const result = await api.kickPlayer(currentRoom, playerName, targetPlayer);
+        console.log('✅ 踢出成功:', result);
         showToast(result.message, 'success');
         // 立即更新房间状态
         await updateRoomInfo();
     } catch (error) {
+        console.error('❌ 踢出玩家失败:', error);
         showToast(`踢出玩家失败: ${error.message}`, 'error');
     }
 }
@@ -700,10 +923,18 @@ function handleQuitGame() {
 function resetGame() {
     currentRoom = null;
     isCreator = false;
-    gameUI.clearGemSelection();
+    isStartingGame = false;  // 重置开始游戏标志
+    gameUI.clearBallSelection();  // 修正：清除精灵球选择
     gameUI.selectedCard = null;
     gameUI.stopPolling();
     document.getElementById('rooms-list').style.display = 'none';
+    
+    // 重置开始游戏按钮状态
+    const startBtn = document.getElementById('start-game-btn');
+    if (startBtn) {
+        startBtn.textContent = '开始游戏';
+        startBtn.disabled = false;
+    }
 }
 
 // 页面加载完成后初始化

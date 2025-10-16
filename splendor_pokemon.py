@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 class BallType(Enum):
-    """精灵球类型（对应宝石）"""
+    """精灵球类型（对应原游戏中的宝石）"""
     BLACK = "黑"    # 黑色/岩地系
     PINK = "粉"     # 粉色/超能系
     YELLOW = "黄"   # 黄色/电系

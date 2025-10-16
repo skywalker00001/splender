@@ -20,11 +20,11 @@
                 </div>
                 
                 <h1 class="title">🌟 璀璨宝石宝可梦 🌟</h1>
-                <p class="subtitle">收集宝石，捕获宝可梦，成为训练大师！</p>
+                <p class="subtitle">收集精灵球，捕获宝可梦，成为训练大师！</p>
                 
                 <div class="card">
                     <h2>游戏大厅</h2>
-                    <p style="text-align: center; color: #666; margin-bottom: 20px;">
+                    <p style="text-align: center; color: #bbb; margin-bottom: 35px; font-size: 1.3em; font-weight: 500;">
                         选择创建新房间或加入现有房间开始游戏
                     </p>
                     
@@ -43,8 +43,24 @@
                 <!-- 房间列表 -->
                 <div id="rooms-list" class="card" style="display: none;">
                     <h2>可用房间</h2>
+                    
+                    <!-- 搜索栏 -->
+                    <div class="room-search-bar">
+                        <input type="text" id="room-search-input" placeholder="搜索房间号或房主名..." style="flex: 1; margin: 0;">
+                        <button id="search-rooms-btn" class="btn btn-primary btn-small">🔍 搜索</button>
+                        <button id="refresh-rooms-btn" class="btn btn-secondary btn-small">🔄 刷新</button>
+                        <button id="back-to-lobby-from-rooms-btn" class="btn btn-secondary btn-small">« 返回</button>
+                    </div>
+                    
+                    <!-- 房间容器 -->
                     <div id="rooms-container"></div>
-                    <button id="refresh-rooms-btn" class="btn btn-secondary">刷新房间列表</button>
+                    
+                    <!-- 分页控件 -->
+                    <div id="rooms-pagination" class="pagination-controls">
+                        <button id="prev-page-btn" class="btn btn-small btn-secondary" disabled>« 上一页</button>
+                        <span id="page-info" style="margin: 0 25px; color: #ecf0f1; font-size: 1.2em; font-weight: 500;">第 1 页 / 共 1 页</span>
+                        <button id="next-page-btn" class="btn btn-small btn-secondary" disabled>下一页 »</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -142,21 +158,21 @@
                     <div class="game-controls">
                         <button id="view-rules-game-btn" class="btn btn-secondary btn-small">📖 规则</button>
                         <button id="view-cards-game-btn" class="btn btn-secondary btn-small">🎴 卡库</button>
-                        <button id="quit-game-btn" class="btn btn-danger">退出游戏</button>
+                        <button id="quit-game-btn" class="btn btn-danger btn-small">🚪 退出游戏</button>
                     </div>
                 </div>
 
                 <div class="game-main">
                     <!-- 左侧：游戏区域 -->
                     <div class="game-left">
-                        <!-- 宝石池 -->
+                        <!-- 精灵球池 -->
                         <div class="card">
-                            <h3>🎨 宝石池</h3>
+                            <h3>🎨 精灵球池</h3>
                             <div id="gem-pool" class="gem-pool"></div>
                             <div class="selected-gems">
                                 已选择: <span id="selected-gems-display">无</span>
                                 <button id="clear-selection-btn" class="btn btn-small">清除选择</button>
-                                <button id="take-gems-btn" class="btn btn-primary">拿取宝石</button>
+                                <button id="take-gems-btn" class="btn btn-primary">拿取精灵球</button>
                             </div>
                         </div>
 
@@ -166,13 +182,17 @@
                             <div id="special-cards" class="special-cards-container">
                                 <div class="special-slot">
                                     <h4>⭐ 稀有(Lv4)</h4>
-                                    <div id="rare-card-display"></div>
-                                    <div id="rare-deck-info" class="deck-info"></div>
+                                    <div class="special-slot-content">
+                                        <div id="rare-deck-info" class="deck-info"></div>
+                                        <div id="rare-card-display"></div>
+                                    </div>
                                 </div>
                                 <div class="special-slot">
                                     <h4>🌟 传说(Lv5)</h4>
-                                    <div id="legendary-card-display"></div>
-                                    <div id="legendary-deck-info" class="deck-info"></div>
+                                    <div class="special-slot-content">
+                                        <div id="legendary-deck-info" class="deck-info"></div>
+                                        <div id="legendary-card-display"></div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

@@ -2,23 +2,6 @@
  * 游戏状态管理和UI渲染 - V2版本（适配新规则）
  */
 
-// 检查用户是否已登录
-function checkLoginStatus() {
-    const currentPlayerName = sessionStorage.getItem('currentPlayerName');
-    if (!currentPlayerName) {
-        // 未登录，跳转到登录页面
-        window.location.href = '/login.html';
-        return false;
-    }
-    return true;
-}
-
-// 页面加载时检查登录状态
-if (!checkLoginStatus()) {
-    // 如果未登录，停止执行后续代码
-    throw new Error('Please login first');
-}
-
 // 球类型配置（BallType）- 5种颜色球 + 大师球
 const BALL_CONFIG = {
     '黑': { emoji: '⚫', class: 'ball-black', name: '黑球' },
@@ -41,7 +24,6 @@ class GameUI {
         this.aiPlayers = [];  // 所有AI玩家列表
         this.hasPerformedMainAction = false;  // 是否已执行主要操作（买/拿/预购）
         this.hasPerformedEvolution = false;  // 是否已进化
-        this.ballsToReturn = {};  // 选择要放回的球 {球类型: 数量}
     }
 
     /**
@@ -88,28 +70,13 @@ class GameUI {
     selectBall(ballType, element) {
         const ballPool = this.currentGameState.ball_pool;
         
-        // 统计已选择的颜色种类
-        const uniqueColors = [...new Set(this.selectedBalls)];
+        // 统计已选择该颜色的数量
         const selectedCountOfThisType = this.selectedBalls.filter(b => b === ballType).length;
         
-        // 判断当前选择模式
-        const isSameColorMode = this.selectedBalls.length === 2 && uniqueColors.length === 1;
-        const isDifferentColorMode = this.selectedBalls.length > 0 && uniqueColors.length > 1;
-        
-        // 检查是否已经选了2个同色球（同色模式完成）
-        if (isSameColorMode) {
-            // 已选2个同色球，不允许再选任何球
-            if (confirm('最多拿同一个颜色的2个球，点击确定清空重新选择')) {
-                this.clearBallSelection();
-                this.updateTakeBallsButtonState();
-            }
-            return;
-        }
-        
-        // 如果已经是不同色模式，不允许选择同一颜色的第2个球
-        if (isDifferentColorMode && selectedCountOfThisType >= 1) {
-            showToast('不同色拿球模式下，每种颜色只能拿1个！点击确定清空重新选择', 'error');
-            if (confirm('当前是不同色拿球模式（每种颜色1个）。要切换到同色拿球模式（同色2个）吗？')) {
+        // 检查是否已经选了2个同色球
+        if (this.selectedBalls.length === 2 && this.selectedBalls[0] === this.selectedBalls[1]) {
+            // 已选2个同色球，再点击任一颜色的球，都弹出确认框
+            if (confirm('最多拿同一个颜色的2个球')) {
                 this.clearBallSelection();
                 this.updateTakeBallsButtonState();
             }
@@ -117,8 +84,11 @@ class GameUI {
         }
         
         // 如果已经选了1个该颜色，尝试选第2个同色球
-        if (selectedCountOfThisType === 1 && this.selectedBalls.length === 1) {
-            // 只有在只选了1个球时，才允许选第2个同色球
+        if (selectedCountOfThisType === 1) {
+            // 先添加第2个同色球
+            this.selectedBalls.push(ballType);
+            this.updateSelectedBallsDisplay();
+            
             // 检查拿完2个后是否还剩至少2个（即拿之前至少有4个）
             const remainingAfterTake = ballPool[ballType] - 2;
             if (remainingAfterTake < 2) {
@@ -128,8 +98,6 @@ class GameUI {
                 return;
             }
             
-            this.selectedBalls.push(ballType);
-            this.updateSelectedBallsDisplay();
             this.updateTakeBallsButtonState();
             return;
         }
@@ -139,12 +107,13 @@ class GameUI {
             // 第一个球
             this.selectedBalls.push(ballType);
             element.classList.add('selected');
-        } else if (this.selectedBalls.length === 1 && selectedCountOfThisType === 0) {
-            // 第二个球（不同颜色） - 确保不是选已选的颜色
+        } else if (this.selectedBalls.length === 1) {
+            // 第二个球（不同颜色）
             this.selectedBalls.push(ballType);
             element.classList.add('selected');
         } else if (this.selectedBalls.length === 2) {
-            // 此时已经是2个不同色球，拿第3个不同颜色的球
+            // 此时已经是2个不同色球
+            // 拿第3个不同颜色的球
             if (this.selectedBalls.includes(ballType)) {
                 showToast('已选择该颜色，不能重复选择', 'error');
                 return;
@@ -153,7 +122,7 @@ class GameUI {
             element.classList.add('selected');
         } else if (this.selectedBalls.length >= 3) {
             // 已选满3个不同色球
-            if (confirm('最多拿三个不同颜色的各1个球，点击确定清空重新选择')) {
+            if (confirm('最多拿三个不同颜色的各1个球')) {
                 this.clearBallSelection();
                 this.updateTakeBallsButtonState();
             }
@@ -177,7 +146,7 @@ class GameUI {
     }
 
     /**
-     * 更新"拿取精灵球"按钮状态
+     * 更新"拿取宝石"按钮状态
      */
     updateTakeBallsButtonState() {
         const isMyTurn = this.currentGameState && 
@@ -390,13 +359,11 @@ class GameUI {
 
         cardDiv.innerHTML = `
             <div class="card-header">
-                <div class="card-name-level">
-                    <div class="card-name">${card.name}</div>
-                    <div class="card-level">Lv${card.level}</div>
-                </div>
-                <div class="card-permanent">抵扣: ${permanentStr || '无'}</div>
+                <div class="card-name">${card.name}</div>
+                <div class="card-level">Lv${card.level}</div>
             </div>
             <div class="card-cost">成本: ${costStr || '无'}</div>
+            <div class="card-permanent">提供: ${permanentStr || '无'}</div>
             <div class="card-points">⭐ ${card.victory_points}VP</div>
             ${evolutionStr}
         `;
@@ -501,52 +468,6 @@ class GameUI {
     }
 
     /**
-     * 显示预购区卡牌操作选项（只有买卡按钮）
-     */
-    showReservedCardActions(card) {
-        const currentPlayer = this.currentGameState?.player_states?.[this.currentPlayerName];
-        if (!currentPlayer) return;
-        
-        // 检查是否能买卡
-        const canBuy = this.canAffordCard(card, currentPlayer);
-        
-        // 创建弹窗
-        const modal = document.createElement('div');
-        modal.className = 'card-action-modal';
-        
-        // 格式化成本显示
-        const costDisplay = Object.entries(card.cost || {})
-                .filter(([_, amount]) => amount > 0)
-            .map(([ball, amount]) => `${BALL_CONFIG[ball]?.emoji || ball}×${amount}`)
-            .join(' ') || '无';
-        
-        modal.innerHTML = `
-            <div class="modal-content">
-                <h3>预购卡牌: ${card.name}</h3>
-                <p>成本: ${costDisplay}</p>
-                <div class="modal-buttons">
-                    <button id="buy-card-btn" class="btn btn-primary" ${!canBuy ? 'disabled' : ''}>
-                        💰 购买 ${!canBuy ? '(资源不足)' : ''}
-                    </button>
-                    <button id="cancel-card-btn" class="btn btn-danger">❌ 取消</button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        
-        // 绑定事件
-        document.getElementById('buy-card-btn').addEventListener('click', () => {
-            if (canBuy) this.buyCard(card);
-            document.body.removeChild(modal);
-        });
-        
-        document.getElementById('cancel-card-btn').addEventListener('click', () => {
-            document.body.removeChild(modal);
-        });
-    }
-
-    /**
      * 检查是否能买得起卡牌
      */
     canAffordCard(card, playerState) {
@@ -581,8 +502,7 @@ class GameUI {
      * 购买卡牌
      */
     buyCard(card) {
-        // 使用唯一card_id而不是name（避免重名卡牌混淆）
-        api.buyCard(this.currentRoomId, this.currentPlayerName, { card_id: card.card_id })
+        api.buyCard(this.currentRoomId, this.currentPlayerName, { name: card.name })
             .then(response => {
                 if (response.success) {
                     showToast('购买成功！', 'success');
@@ -602,8 +522,7 @@ class GameUI {
      * 预购卡牌
      */
     reserveCard(card) {
-        // 使用唯一card_id而不是name（避免重名卡牌混淆）
-        api.reserveCard(this.currentRoomId, this.currentPlayerName, { card: { card_id: card.card_id } })
+        api.reserveCard(this.currentRoomId, this.currentPlayerName, { card: { name: card.name } })
             .then(response => {
                 if (response.success) {
                     showToast('预购成功！', 'success');
@@ -676,7 +595,7 @@ class GameUI {
             const titleHTML = `
                 <h3>
                     ${isCurrentTurn ? '▶️ ' : ''}
-                    玩家${playerNumber}${isMe ? '（我）' : ''}: ${playerName}
+                    玩家${playerNumber}: ${playerName}
                     ${isMe ? ' 👤' : ''}
                 </h3>
             `;
@@ -685,20 +604,6 @@ class GameUI {
             
             playerCard.innerHTML = titleHTML;
             playerCard.appendChild(playerInfoDiv);
-            
-            // 移动端：点击标题展开/折叠详细信息
-            const title = playerCard.querySelector('h3');
-            title.addEventListener('click', () => {
-                if (window.innerWidth <= 900) {
-                    playerCard.classList.toggle('expanded');
-                }
-            });
-            
-            // 默认只展开自己的卡片（移动端）
-            if (isMe && window.innerWidth <= 900) {
-                playerCard.classList.add('expanded');
-            }
-            
             container.appendChild(playerCard);
         });
     }
@@ -706,33 +611,18 @@ class GameUI {
     /**
      * 格式化卡牌信息（用于显示已拥有/预购卡牌）
      */
-    formatCardInfo(card, isReserved = false, isClickable = false) {
-        const miniCardClass = isClickable ? 'mini-card mini-card-clickable' : 'mini-card';
-        const cardDataAttr = isClickable ? ` data-card='${JSON.stringify(card)}'` : '';
-        
-        let info = `<div class="${miniCardClass}"${cardDataAttr}>`;
+    formatCardInfo(card) {
+        let info = `<div class="mini-card">`;
         
         // 基本信息：名称 + 分数
         info += `<strong>${card.name}</strong> (${card.victory_points}VP)`;
         
-        // 等级 - 干净显示，不加框
+        // 等级
         if (card.level) {
-            info += ` <span style="color: #bbb;">Lv${card.level}</span>`;
+            info += ` <span class="card-level-tag">Lv${card.level}</span>`;
         }
         
-        // 成本信息
-        if (card.cost && Object.keys(card.cost).length > 0) {
-            const costStr = Object.entries(card.cost)
-                .filter(([_, amount]) => amount > 0)
-                .map(([ball, amount]) => {
-                    const config = BALL_CONFIG[ball];
-                    return `${config?.emoji || ball}×${amount}`;
-                })
-                .join(' ');
-            info += `<br><span style="color: #aaa; font-size: 0.9em;">成本: ${costStr}</span>`;
-        }
-        
-        // 提供的抵扣颜色 - 加上"抵扣："文字说明
+        // 提供的抵扣颜色
         if (card.permanent_balls && Object.keys(card.permanent_balls).length > 0) {
             const permanentStr = Object.entries(card.permanent_balls)
                 .filter(([_, amount]) => amount > 0)
@@ -741,7 +631,7 @@ class GameUI {
                     return `${config?.emoji || ball}${amount > 1 ? '×' + amount : ''}`;
                 })
                 .join('');
-            info += ` <span style="color: #bbb;">抵扣：${permanentStr}</span>`;
+            info += ` <span class="card-permanent-tag">${permanentStr}</span>`;
         }
         
         // 进化信息（仅1/2级卡牌）
@@ -769,12 +659,6 @@ class GameUI {
         const nameClass = isCurrentTurn ? 'player-name current-turn' : 'player-name';
         const turnIndicator = isCurrentTurn ? '▶️ ' : '';
 
-        // 检查是否是当前玩家自己
-        const isMyself = playerName === this.currentPlayerName;
-        // 检查是否是我的回合
-        const isMyTurn = this.currentGameState && 
-                         this.currentGameState.current_player === this.currentPlayerName;
-
         // 球信息 - 按固定顺序显示所有颜色（包括0）
         const ballOrder = ['黑', '粉', '黄', '蓝', '红', '大师球'];
         const ballBadges = ballOrder.map(ball => {
@@ -798,10 +682,9 @@ class GameUI {
             .map(card => this.formatCardInfo(card))
             .join('') || '<div class="no-cards">暂无</div>';
 
-        // 预定卡牌 - 只有在我的回合且是我自己的预购区时才可以点击
-        const canClickReserved = isMyself && isMyTurn;
+        // 预定卡牌
         const reservedDisplay = (state.reserved_cards || [])
-            .map(card => this.formatCardInfo(card, true, canClickReserved))
+            .map(card => this.formatCardInfo(card))
             .join('') || '<div class="no-cards">暂无</div>';
 
         playerDiv.innerHTML = `
@@ -830,30 +713,9 @@ class GameUI {
             </div>
             <div class="player-reserved">
                 <h4>📋 预定卡牌 (${(state.reserved_cards || []).length}/3)</h4>
-                <div class="cards-grid cards-grid-reserved">${reservedDisplay}</div>
+                <div class="cards-grid">${reservedDisplay}</div>
             </div>
         `;
-
-        // 如果是我自己的预购区，添加点击事件委托
-        if (canClickReserved) {
-            const reservedGrid = playerDiv.querySelector('.cards-grid-reserved');
-            if (reservedGrid) {
-                reservedGrid.addEventListener('click', (e) => {
-                    const miniCard = e.target.closest('.mini-card-clickable');
-                    if (miniCard) {
-                        const cardData = miniCard.dataset.card;
-                        if (cardData) {
-                            try {
-                                const card = JSON.parse(cardData);
-                                this.showReservedCardActions(card);
-                            } catch (error) {
-                                console.error('解析卡牌数据失败:', error);
-                            }
-                        }
-                    }
-                });
-            }
-        }
 
         return playerDiv;
     }
@@ -863,11 +725,6 @@ class GameUI {
      */
     updateGameUI(gameState) {
         this.currentGameState = gameState;
-
-        // 更新回合数和胜利目标显示
-        document.getElementById('turn-number').textContent = gameState.turn_number || 1;
-        document.getElementById('victory-goal').textContent = gameState.victory_points || '-';  // 后端应该总是返回
-        document.getElementById('total-players').textContent = gameState.players?.length || '-';  // 后端应该总是返回
 
         // 渲染球池
         this.renderBallPool(gameState.ball_pool || {});
@@ -895,11 +752,6 @@ class GameUI {
         const takeGemsBtn = document.getElementById('take-gems-btn');
         if (takeGemsBtn) {
             takeGemsBtn.disabled = !isMyTurn || this.selectedBalls.length === 0;
-        }
-        
-        // 检查是否需要放回球
-        if (isMyTurn && gameState.player_states[this.currentPlayerName]?.needs_return_balls) {
-            this.showReturnBallsModal();
         }
     }
 
@@ -1008,21 +860,21 @@ class GameUI {
         }
         
         // 显示选择框（包含跳过选项）
-        const cardId = await this.showEvolutionChoice(evolvableCards);
+        const cardName = await this.showEvolutionChoice(evolvableCards);
         
-        if (!cardId) {
+        if (!cardName) {
             // 用户选择跳过进化，自动结束回合
             await this.autoEndTurn();
             return;
         }
         
-        const cardToEvolve = evolvableCards.find(c => c.card_id === cardId);
+        const cardToEvolve = evolvableCards.find(c => c.name === cardName);
         
-        // 调用进化API（使用唯一card_id而不是name）
+        // 调用进化API
         try {
             const response = await api.evolveCard(this.currentRoomId, {
                 player_name: this.currentPlayerName,
-                card_id: cardToEvolve.card_id
+                card_name: cardToEvolve.name
             });
             
             if (response.success) {
@@ -1047,9 +899,8 @@ class GameUI {
             const modal = document.createElement('div');
             modal.className = 'card-action-modal';
             
-            // 使用card_id作为唯一标识，但显示name给用户看
             const cardsHtml = cards.map(card => `
-                <div class="evolution-option" data-card-id="${card.card_id}">
+                <div class="evolution-option" data-card="${card.name}">
                     ${card.name} → ${card.evolution_target}
                 </div>
             `).join('');
@@ -1070,9 +921,9 @@ class GameUI {
             // 绑定事件
             modal.querySelectorAll('.evolution-option').forEach(option => {
                 option.addEventListener('click', () => {
-                    const cardId = parseInt(option.dataset.cardId);
+                    const cardName = option.dataset.card;
                     document.body.removeChild(modal);
-                    resolve(cardId);
+                    resolve(cardName);
                 });
             });
             
@@ -1113,224 +964,6 @@ class GameUI {
     }
 
     /**
-     * 显示放回球的UI
-     */
-    showReturnBallsModal() {
-        // 检查是否已经有弹窗
-        if (document.getElementById('return-balls-modal')) {
-            return;  // 已经有弹窗，不重复创建
-        }
-        
-        const currentPlayer = this.currentGameState?.player_states?.[this.currentPlayerName];
-        if (!currentPlayer) return;
-        
-        const totalBalls = Object.values(currentPlayer.balls || {}).reduce((a, b) => a + b, 0);
-        const neededReturn = totalBalls - 10;
-        
-        // 初始化要放回的球
-        this.ballsToReturn = {};
-        const ballOrder = ['黑', '粉', '黄', '蓝', '红', '大师球'];
-        ballOrder.forEach(ball => {
-            this.ballsToReturn[ball] = 0;
-        });
-        
-        // 创建弹窗
-        const modal = document.createElement('div');
-        modal.id = 'return-balls-modal';
-        modal.className = 'card-action-modal';
-        modal.style.zIndex = '10000';
-        
-        modal.innerHTML = `
-            <div class="modal-content" style="max-width: 500px;">
-                <h3>⚠️ 球数超过上限</h3>
-                <p style="color: #e74c3c; font-weight: bold;">
-                    当前球数：${totalBalls}个 | 需要放回：${neededReturn}个
-                </p>
-                
-                <div style="margin: 20px 0;">
-                    <h4>当前持有球：</h4>
-                    <div id="current-balls-display" class="ball-selection-grid"></div>
-                </div>
-                
-                <div style="margin: 20px 0;">
-                    <h4>选择要放回的球：</h4>
-                    <div id="return-balls-display" class="ball-selection-grid"></div>
-                </div>
-                
-                <div style="margin: 15px 0; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 5px;">
-                    <span>已选择放回：</span>
-                    <span id="selected-return-count" style="color: #f1c40f; font-weight: bold;">0</span>
-                    <span> / ${neededReturn} 个</span>
-                </div>
-                
-                <div class="modal-buttons">
-                    <button id="return-balls-btn" class="btn btn-primary" disabled>
-                        ✅ 确认放回
-                    </button>
-                    <button id="clear-return-btn" class="btn btn-secondary">
-                        🔄 清除选择
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        
-        // 渲染球的显示和控制
-        this.renderReturnBallsDisplay(currentPlayer.balls, neededReturn);
-        
-        // 绑定事件
-        document.getElementById('return-balls-btn').addEventListener('click', () => this.executeReturnBalls());
-        document.getElementById('clear-return-btn').addEventListener('click', () => this.clearReturnSelection(currentPlayer.balls, neededReturn));
-    }
-
-    /**
-     * 渲染放回球的显示
-     */
-    renderReturnBallsDisplay(playerBalls, neededReturn) {
-        const currentBallsDiv = document.getElementById('current-balls-display');
-        const returnBallsDiv = document.getElementById('return-balls-display');
-        
-        const ballOrder = ['黑', '粉', '黄', '蓝', '红', '大师球'];
-        
-        // 渲染当前持有球
-        currentBallsDiv.innerHTML = ballOrder.map(ball => {
-            const count = playerBalls[ball] || 0;
-            const config = BALL_CONFIG[ball];
-            return `
-                <div class="ball-item">
-                    <div class="ball-emoji">${config?.emoji || ball}</div>
-                    <div class="ball-name">${config?.name || ball}</div>
-                    <div class="ball-count">${count}</div>
-                </div>
-            `;
-        }).join('');
-        
-        // 渲染要放回的球（带上下箭头）
-        returnBallsDiv.innerHTML = ballOrder.map(ball => {
-            const maxCount = playerBalls[ball] || 0;
-            const config = BALL_CONFIG[ball];
-            const currentReturn = this.ballsToReturn[ball] || 0;
-            
-            return `
-                <div class="ball-item">
-                    <div class="ball-emoji">${config?.emoji || ball}</div>
-                    <div class="ball-name">${config?.name || ball}</div>
-                    <div class="ball-controls">
-                        <button class="ball-decrease-btn" data-ball="${ball}" ${currentReturn === 0 ? 'disabled' : ''}>
-                            ▼
-                        </button>
-                        <span class="ball-count">${currentReturn}</span>
-                        <button class="ball-increase-btn" data-ball="${ball}" ${maxCount === 0 ? 'disabled' : ''}>
-                            ▲
-                        </button>
-                    </div>
-                </div>
-            `;
-        }).join('');
-        
-        // 绑定增加/减少按钮事件
-        returnBallsDiv.querySelectorAll('.ball-increase-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const ball = btn.dataset.ball;
-                this.adjustReturnBall(ball, 1, playerBalls, neededReturn);
-            });
-        });
-        
-        returnBallsDiv.querySelectorAll('.ball-decrease-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const ball = btn.dataset.ball;
-                this.adjustReturnBall(ball, -1, playerBalls, neededReturn);
-            });
-        });
-    }
-
-    /**
-     * 调整要放回的球数量
-     */
-    adjustReturnBall(ball, delta, playerBalls, neededReturn) {
-        const maxCount = playerBalls[ball] || 0;
-        const currentReturn = this.ballsToReturn[ball] || 0;
-        const totalReturn = Object.values(this.ballsToReturn).reduce((a, b) => a + b, 0);
-        
-        // 计算新值
-        let newValue = currentReturn + delta;
-        
-        // 检查限制
-        if (newValue < 0) newValue = 0;
-        if (newValue > maxCount) newValue = maxCount;
-        
-        // 如果增加，检查是否超过需要放回的总数
-        if (delta > 0 && totalReturn >= neededReturn) {
-            showToast('已达到需要放回的数量', 'warning');
-            return;
-        }
-        
-        this.ballsToReturn[ball] = newValue;
-        
-        // 重新渲染
-        this.renderReturnBallsDisplay(playerBalls, neededReturn);
-        this.updateReturnBallsButton(neededReturn);
-    }
-
-    /**
-     * 更新放回按钮状态
-     */
-    updateReturnBallsButton(neededReturn) {
-        const totalReturn = Object.values(this.ballsToReturn).reduce((a, b) => a + b, 0);
-        const countSpan = document.getElementById('selected-return-count');
-        const returnBtn = document.getElementById('return-balls-btn');
-        
-        if (countSpan) {
-            countSpan.textContent = totalReturn;
-            if (totalReturn === neededReturn) {
-                countSpan.style.color = '#2ecc71';  // 绿色表示正确
-            } else {
-                countSpan.style.color = '#f1c40f';  // 黄色
-            }
-        }
-        
-        if (returnBtn) {
-            returnBtn.disabled = (totalReturn !== neededReturn);
-        }
-    }
-
-    /**
-     * 清除放回选择
-     */
-    clearReturnSelection(playerBalls, neededReturn) {
-        const ballOrder = ['黑', '粉', '黄', '蓝', '红', '大师球'];
-        ballOrder.forEach(ball => {
-            this.ballsToReturn[ball] = 0;
-        });
-        this.renderReturnBallsDisplay(playerBalls, neededReturn);
-        this.updateReturnBallsButton(neededReturn);
-    }
-
-    /**
-     * 执行放回球
-     */
-    async executeReturnBalls() {
-        try {
-            const response = await api.returnBalls(this.currentRoomId, this.currentPlayerName, this.ballsToReturn);
-            if (response.success) {
-                showToast('成功放回球！', 'success');
-                // 关闭弹窗
-                const modal = document.getElementById('return-balls-modal');
-                if (modal) {
-                    document.body.removeChild(modal);
-                }
-                // 检查进化
-                this.checkAndShowEvolution();
-            } else {
-                showToast(response.error || '放回球失败', 'error');
-            }
-        } catch (error) {
-            showToast('操作失败: ' + error.message, 'error');
-        }
-    }
-
-    /**
      * 开始轮询游戏状态
      */
     startPolling(roomId, playerName) {
@@ -1368,10 +1001,6 @@ class GameUI {
                 // 检查游戏是否结束
                 if (response.game_over) {
                     this.stopPolling();
-                    // 清除游戏会话
-                    if (typeof clearGameSession === 'function') {
-                        clearGameSession();
-                    }
                     showToast(`游戏结束！胜者: ${response.winner || '未知'}`, 'success');
                 }
             }

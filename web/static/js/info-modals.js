@@ -177,9 +177,11 @@ async function showCardsModal() {
                         
                         html += `
                             <div class="library-card-compact">
-                                <div class="library-card-name">${card.name}</div>
+                                <div class="library-card-header">
+                                    <div class="library-card-name">${card.name}</div>
+                                    <div class="library-card-permanent">抵扣: ${permanentStr || '无'}</div>
+                                </div>
                                 <div class="library-card-cost">💰消耗: ${costStr || '无'}</div>
-                                <div class="library-card-permanent">💎抵扣: ${permanentStr || '无'}</div>
                                 <div class="library-card-points">⭐分数: ${card.victory_points}VP</div>
                                 ${evolutionStr}
                             </div>

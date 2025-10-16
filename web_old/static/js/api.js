@@ -129,20 +129,6 @@ class SplendorAPI {
     }
 
     /**
-     * 更新房间配置
-     */
-    async updateRoomConfig(roomId, playerName, maxPlayers, victoryPoints) {
-        return this.request(`/rooms/${roomId}/config`, {
-            method: 'POST',
-            body: JSON.stringify({
-                player_name: playerName,
-                max_players: maxPlayers,
-                victory_points: victoryPoints
-            })
-        });
-    }
-
-    /**
      * 开始游戏
      */
     async startGame(roomId, playerName) {
@@ -160,7 +146,7 @@ class SplendorAPI {
     }
 
     /**
-     * 拿取精灵球
+     * 拿取宝石
      */
     async takeGems(roomId, playerName, gemTypes) {
         return this.request(`/rooms/${roomId}/take_gems`, {
@@ -209,19 +195,6 @@ class SplendorAPI {
         return this.request(`/rooms/${roomId}/evolve_card`, {
             method: 'POST',
             body: JSON.stringify(data)
-        });
-    }
-
-    /**
-     * 放回球（超过10个时）
-     */
-    async returnBalls(roomId, playerName, ballsToReturn) {
-        return this.request(`/rooms/${roomId}/return_balls`, {
-            method: 'POST',
-            body: JSON.stringify({
-                player_name: playerName,
-                balls_to_return: ballsToReturn
-            })
         });
     }
 

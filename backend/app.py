@@ -107,8 +107,9 @@ class GameRoom:
                 players=self.players.copy(),
                 victory_points_goal=self.victory_points
             )
-            # 记录初始状态
-            self.history.record_initial_state(get_game_state(self.room_id))
+            # 记录初始状态 - 直接调用实例方法，避免死锁
+            initial_state = self.get_game_state()
+            self.history.record_initial_state(initial_state)
             # 开始第一回合
             current_player = self.game.get_current_player()
             self.history.start_turn(1, current_player.name)
@@ -411,12 +412,29 @@ def create_room():
         # 检查玩家是否已经在其他房间
         if player_name in player_to_room:
             old_room_id = player_to_room[player_name]
-            # 检查旧房间是否还存在且未结束
-            if old_room_id in game_rooms and game_rooms[old_room_id].status != "finished":
-                return jsonify({
-                    "error": f"您已在房间 {old_room_id} 中，请先离开当前房间",
-                    "current_room": old_room_id
-                }), 400
+            # 检查旧房间是否还存在
+            if old_room_id in game_rooms:
+                old_room = game_rooms[old_room_id]
+                # 只有在等待状态的房间才阻止创建
+                if old_room.status == "waiting":
+                    return jsonify({
+                        "error": f"您已在房间 {old_room_id} 中，请先离开当前房间",
+                        "current_room": old_room_id
+                    }), 400
+                # 如果旧房间是playing或finished状态，自动清理映射
+                else:
+                    print(f"ℹ️ 自动清理玩家 {player_name} 在旧房间 {old_room_id}（状态: {old_room.status}）的映射")
+                    del player_to_room[player_name]
+                    with user_lock:
+                        if player_name in users:
+                            users[player_name].current_room_id = None
+            else:
+                # 旧房间已不存在，清理映射
+                print(f"ℹ️ 清理玩家 {player_name} 的无效房间映射: {old_room_id}")
+                del player_to_room[player_name]
+                with user_lock:
+                    if player_name in users:
+                        users[player_name].current_room_id = None
         
         room_id = str(uuid.uuid4())[:8]
         game_rooms[room_id] = GameRoom(room_id, player_name)
@@ -448,12 +466,31 @@ def join_room(room_id):
         # 检查玩家是否已经在其他房间
         if player_name in player_to_room:
             old_room_id = player_to_room[player_name]
-            # 如果不是当前房间，且旧房间还存在且未结束
-            if old_room_id != room_id and old_room_id in game_rooms and game_rooms[old_room_id].status != "finished":
-                return jsonify({
-                    "error": f"您已在房间 {old_room_id} 中，请先离开当前房间",
-                    "current_room": old_room_id
-                }), 400
+            # 如果不是当前房间
+            if old_room_id != room_id:
+                # 检查旧房间是否还存在
+                if old_room_id in game_rooms:
+                    old_room = game_rooms[old_room_id]
+                    # 只有在等待状态的房间才阻止加入
+                    if old_room.status == "waiting":
+                        return jsonify({
+                            "error": f"您已在房间 {old_room_id} 中，请先离开当前房间",
+                            "current_room": old_room_id
+                        }), 400
+                    # 如果旧房间是playing或finished状态，自动清理映射
+                    else:
+                        print(f"ℹ️ 自动清理玩家 {player_name} 在旧房间 {old_room_id}（状态: {old_room.status}）的映射")
+                        del player_to_room[player_name]
+                        with user_lock:
+                            if player_name in users:
+                                users[player_name].current_room_id = None
+                else:
+                    # 旧房间已不存在，清理映射
+                    print(f"ℹ️ 清理玩家 {player_name} 的无效房间映射: {old_room_id}")
+                    del player_to_room[player_name]
+                    with user_lock:
+                        if player_name in users:
+                            users[player_name].current_room_id = None
         
         room = game_rooms[room_id]
         if room.status != "waiting":
@@ -511,20 +548,37 @@ def add_bot(room_id):
 @app.route('/api/rooms/<room_id>/add_all_bots', methods=['POST'])
 def add_all_bots(room_id):
     """一键添加全部机器人（补满到设置的人数）"""
+    print(f"\n{'='*60}")
+    print(f"🚀 收到一键补满请求")
+    print(f"{'='*60}")
+    
     data = request.get_json()
     difficulty = data.get('difficulty', '中等')  # 简单/中等/困难
     
+    print(f"房间ID: {room_id}")
+    print(f"难度: {difficulty}")
+    
     with room_lock:
         if room_id not in game_rooms:
+            print(f"❌ 房间不存在: {room_id}")
             return jsonify({"error": "房间不存在"}), 404
             
         room = game_rooms[room_id]
+        print(f"房间信息:")
+        print(f"  - 当前玩家数: {len(room.players)}")
+        print(f"  - 配置玩家数: {room.max_players}")
+        print(f"  - 房间状态: {room.status}")
+        
         if room.status != "waiting":
+            print(f"❌ 房间已开始游戏")
             return jsonify({"error": "房间已开始游戏"}), 400
         
         # 计算需要添加的机器人数量 - 使用配置的max_players
         needed = room.max_players - len(room.players)
+        print(f"需要添加的机器人数量: {needed}")
+        
         if needed <= 0:
+            print(f"❌ 房间已满")
             return jsonify({"error": "房间已满"}), 400
         
         added_bots = []
@@ -532,10 +586,17 @@ def add_all_bots(room_id):
             # 生成AI玩家名称
             ai = create_ai_player(difficulty)
             bot_name = ai.generate_name(room.players)
+            print(f"  尝试添加机器人 {i+1}/{needed}: {bot_name}")
             
             # 添加AI玩家
             if room.add_player(bot_name, is_ai=True, ai_difficulty=difficulty):
                 added_bots.append(bot_name)
+                print(f"  ✅ 成功添加: {bot_name}")
+            else:
+                print(f"  ❌ 添加失败: {bot_name}")
+        
+        print(f"✅ 一键补满完成，添加了 {len(added_bots)} 个机器人")
+        print(f"{'='*60}\n")
         
         room.last_activity = datetime.now()
         
@@ -600,43 +661,59 @@ def leave_room(room_id):
             
         room = game_rooms[room_id]
         
-        # 检查游戏状态
-        if room.status != "waiting":
-            return jsonify({"error": "游戏已开始，无法离开"}), 400
-        
-        # 如果是房主离开，删除整个房间
-        if room.creator_name == player_name:
-            # 清除所有玩家的映射和用户的当前房间
-            for p in room.players:
-                if p in player_to_room and player_to_room[p] == room_id:
-                    del player_to_room[p]
-                with user_lock:
-                    if p in users:
-                        users[p].current_room_id = None
-            del game_rooms[room_id]
+        # 等待状态：正常离开逻辑
+        if room.status == "waiting":
+            # 如果是房主离开，删除整个房间
+            if room.creator_name == player_name:
+                # 清除所有玩家的映射和用户的当前房间
+                for p in room.players:
+                    if p in player_to_room and player_to_room[p] == room_id:
+                        del player_to_room[p]
+                    with user_lock:
+                        if p in users:
+                            users[p].current_room_id = None
+                del game_rooms[room_id]
+                return jsonify({
+                    "message": "房主离开，房间已解散",
+                    "room_deleted": True
+                })
+            
+            # 普通玩家离开
+            if not room.remove_player(player_name):
+                return jsonify({"error": "玩家不在房间中"}), 400
+            
+            # 清除玩家映射和用户的当前房间
+            if player_name in player_to_room and player_to_room[player_name] == room_id:
+                del player_to_room[player_name]
+            with user_lock:
+                if player_name in users:
+                    users[player_name].current_room_id = None
+                
+            room.last_activity = datetime.now()
+            
             return jsonify({
-                "message": "房主离开，房间已解散",
-                "room_deleted": True
+                "message": "已离开房间",
+                "room_deleted": False,
+                "players": room.players
             })
         
-        # 普通玩家离开
-        if not room.remove_player(player_name):
-            return jsonify({"error": "玩家不在房间中"}), 400
-        
-        # 清除玩家映射和用户的当前房间
-        if player_name in player_to_room and player_to_room[player_name] == room_id:
-            del player_to_room[player_name]
-        with user_lock:
-            if player_name in users:
-                users[player_name].current_room_id = None
+        # 游戏进行中或已结束：允许退出，清除玩家的房间映射
+        else:
+            # 清除玩家映射和用户的当前房间
+            if player_name in player_to_room and player_to_room[player_name] == room_id:
+                del player_to_room[player_name]
+            with user_lock:
+                if player_name in users:
+                    users[player_name].current_room_id = None
             
-        room.last_activity = datetime.now()
-        
-    return jsonify({
-        "message": "已离开房间",
-        "room_deleted": False,
-        "players": room.players
-    })
+            # 注意：不从room.players中移除，保持游戏完整性
+            # 只是让玩家可以创建/加入新房间
+            
+            return jsonify({
+                "message": "已退出游戏（游戏将继续进行）",
+                "room_deleted": False,
+                "game_abandoned": True
+            })
 
 @app.route('/api/rooms/<room_id>', methods=['DELETE'])
 def delete_room(room_id):
@@ -704,26 +781,63 @@ def update_room_config(room_id):
 @app.route('/api/rooms/<room_id>/start', methods=['POST'])
 def start_game(room_id):
     """开始游戏"""
+    print(f"\n{'='*60}")
+    print(f"🎮 收到开始游戏请求")
+    print(f"{'='*60}")
+    
     data = request.get_json()
     player_name = data.get('player_name')
     
+    print(f"房间ID: {room_id}")
+    print(f"玩家名: {player_name}")
+    
     with room_lock:
         if room_id not in game_rooms:
+            print(f"❌ 房间不存在: {room_id}")
             return jsonify({"error": "房间不存在"}), 404
             
         room = game_rooms[room_id]
+        print(f"房间信息:")
+        print(f"  - 房主: {room.creator_name}")
+        print(f"  - 当前玩家数: {len(room.players)}")
+        print(f"  - 配置玩家数: {room.max_players}")
+        print(f"  - 玩家列表: {room.players}")
+        print(f"  - 房间状态: {room.status}")
+        
         if room.creator_name != player_name:
+            print(f"❌ 权限验证失败: {player_name} 不是房主 {room.creator_name}")
             return jsonify({"error": "只有房主可以开始游戏"}), 403
             
-        if not room.start_game():
-            return jsonify({"error": "玩家数量不足，无法开始游戏"}), 400
-            
-        room.last_activity = datetime.now()
+        print(f"✅ 权限验证通过")
+        print(f"🚀 尝试开始游戏...")
         
-    return jsonify({
-        "message": "游戏开始",
-        "current_player": room.game.get_current_player().name
-    })
+        try:
+            start_result = room.start_game()
+            print(f"start_game() 返回值: {start_result}")
+            
+            if not start_result:
+                print(f"❌ 开始游戏失败: 玩家数量({len(room.players)}) != 配置数量({room.max_players})")
+                return jsonify({"error": "玩家数量不足，无法开始游戏"}), 400
+            
+            print(f"✅ 游戏开始成功!")
+            print(f"当前玩家: {room.game.get_current_player().name}")
+            print(f"{'='*60}\n")
+            
+            room.last_activity = datetime.now()
+            
+            return jsonify({
+                "message": "游戏开始",
+                "current_player": room.game.get_current_player().name
+            })
+        except Exception as e:
+            print(f"❌❌❌ 开始游戏时发生异常:")
+            print(f"异常类型: {type(e).__name__}")
+            print(f"异常信息: {str(e)}")
+            import traceback
+            print(f"堆栈跟踪:")
+            traceback.print_exc()
+            print(f"{'='*60}\n")
+            return jsonify({"error": f"开始游戏失败: {str(e)}"}), 500
 
 @app.route('/api/rooms/<room_id>/state', methods=['GET'])
 def get_game_state(room_id):
