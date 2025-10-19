@@ -8,8 +8,29 @@
 </head>
 <body>
     <div id="app">
+        <!-- 登录界面 -->
+        <div id="login-screen" class="screen active">
+            <div class="container">
+                <h1 class="title">🌟 璀璨宝石宝可梦 🌟</h1>
+                <p class="subtitle">收集精灵球，捕获宝可梦，成为训练大师！</p>
+                
+                <div class="card">
+                    <h2>🎮 玩家登录</h2>
+                    <p style="text-align: center; color: #bbb; margin-bottom: 25px;">
+                        输入你的用户名开始游戏
+                    </p>
+                    
+                    <div class="form-group">
+                        <input type="text" id="username-input" placeholder="请输入用户名（最多20字符）" maxlength="20" style="width: 100%; padding: 15px; font-size: 1.1em; border-radius: 8px; border: 2px solid #34495e; background: #2c3e50; color: white; margin-bottom: 20px;" />
+                    </div>
+                    
+                    <button id="login-btn" class="btn btn-primary" style="width: 100%; padding: 15px; font-size: 1.2em;">🚀 进入游戏</button>
+                </div>
+            </div>
+        </div>
+        
         <!-- 登录/房间选择界面 -->
-        <div id="lobby-screen" class="screen active">
+        <div id="lobby-screen" class="screen">
             <div class="container">
                 <!-- 用户信息栏 -->
                 <div class="user-info-bar">
@@ -27,6 +48,13 @@
                     <p style="text-align: center; color: #bbb; margin-bottom: 35px; font-size: 1.3em; font-weight: 500;">
                         选择创建新房间或加入现有房间开始游戏
                     </p>
+                    
+                    <!-- 重新加入游戏按钮（如果有未完成的游戏） -->
+                    <div id="rejoin-game-container" style="display: none; margin-bottom: 20px;">
+                        <button id="rejoin-game-btn" class="btn btn-highlight" style="width: 100%; padding: 20px; font-size: 1.3em; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); animation: pulse 2s ease-in-out infinite;">
+                            ⚡ 重新加入游戏 ⚡
+                        </button>
+                    </div>
                     
                     <div class="button-group">
                         <button id="create-room-btn" class="btn btn-primary">🎮 创建新房间</button>
@@ -135,6 +163,11 @@
         <!-- 游戏界面 -->
         <div id="game-screen" class="screen">
             <div class="game-container">
+                <!-- 最后一轮警告横幅 -->
+                <div id="final-round-banner" class="final-round-banner" style="display: none;">
+                    ⚠️ 有玩家已经达到胜利分数，游戏将在本轮结束！⚠️
+                </div>
+                
                 <!-- 顶部信息栏 -->
                 <div class="game-header">
                     <div class="current-player-info">
@@ -158,6 +191,7 @@
                     <div class="game-controls">
                         <button id="view-rules-game-btn" class="btn btn-secondary btn-small">📖 规则</button>
                         <button id="view-cards-game-btn" class="btn btn-secondary btn-small">🎴 卡库</button>
+                        <button id="toggle-debug-btn" class="btn btn-secondary btn-small" style="display: none;">🔧 调试</button>
                         <button id="quit-game-btn" class="btn btn-danger btn-small">🚪 退出游戏</button>
                     </div>
                 </div>
@@ -261,8 +295,51 @@
         </div>
     </div>
 
+    <!-- 调试面板背景遮罩 -->
+    <div id="debug-overlay" class="debug-overlay" style="display: none;"></div>
+    
+    <!-- 调试面板 -->
+    <div id="debug-panel" class="debug-panel" style="display: none;">
+        <div class="debug-panel-header">
+            <h3>🔧 调试面板</h3>
+            <button id="close-debug-btn" class="btn btn-small btn-danger">✕</button>
+        </div>
+        <div class="debug-panel-body">
+            <!-- 添加球 -->
+            <div class="debug-section">
+                <h4>🎨 添加持有球</h4>
+                <div class="debug-balls-grid" id="debug-add-balls"></div>
+            </div>
+
+            <!-- 修改永久折扣 -->
+            <div class="debug-section">
+                <h4>💎 修改永久折扣</h4>
+                <div class="debug-balls-grid" id="debug-permanent-balls"></div>
+            </div>
+
+            <!-- 添加卡牌 -->
+            <div class="debug-section">
+                <h4>🎴 添加卡牌</h4>
+                <div class="debug-tabs">
+                    <button class="debug-tab active" data-tab="owned">已拥有</button>
+                    <button class="debug-tab" data-tab="reserved">预定</button>
+                </div>
+                <div class="debug-card-source">
+                    <label>
+                        <input type="radio" name="card-source" value="tableau" checked> 从场上
+                    </label>
+                    <label>
+                        <input type="radio" name="card-source" value="deck"> 从牌堆
+                    </label>
+                </div>
+                <div id="debug-card-selection"></div>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/api.js"></script>
     <script src="/static/js/game.js"></script>
+    <script src="/static/js/debug.js"></script>
     <script src="/static/js/main.js"></script>
     <script src="/static/js/info-modals.js"></script>
 </body>

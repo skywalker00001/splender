@@ -160,28 +160,68 @@ function renderTurnDetail(turn) {
     const actionsHTML = turn.actions.length > 0 ? turn.actions.map(action => {
         const isSuccess = action.result;
         let dataDisplay = '';
+        let actionIcon = '';
         
         // 根据动作类型格式化数据
         if (action.type === 'take_balls') {
-            dataDisplay = `拿取球: ${action.data.ball_types.join(', ')}`;
+            actionIcon = '🎨';
+            const ballEmojis = {
+                '黑': '⚫', '粉': '🌸', '黄': '🟡',
+                '蓝': '🔵', '红': '🔴', '大师球': '🟣'
+            };
+            const ballsDisplay = action.data.ball_types.map(b => ballEmojis[b] || b).join(' ');
+            dataDisplay = `拿取球: ${ballsDisplay}`;
         } else if (action.type === 'buy_card') {
-            dataDisplay = `购买卡牌: ${action.data.card_name} (Lv${action.data.card_level}, ${action.data.card_vp}VP)`;
+            actionIcon = '💰';
+            const cardName = action.data.card_name || action.data.card?.name || '未知卡牌';
+            const cardLevel = action.data.card_level || action.data.card?.level || '?';
+            const cardVP = action.data.card_vp !== undefined ? action.data.card_vp : (action.data.card?.victory_points || 0);
+            dataDisplay = `购买卡牌: ${cardName} (Lv${cardLevel}, ${cardVP}VP)`;
         } else if (action.type === 'reserve_card') {
-            dataDisplay = `预购卡牌: ${action.data.card_name} (Lv${action.data.card_level})${action.data.blind ? ' [盲预购]' : ''}`;
-        } else if (action.type === 'evolve') {
-            dataDisplay = `进化: ${action.data.base_card || '基础卡'} → ${action.data.target_card || '目标卡'}`;
+            actionIcon = '📦';
+            const cardName = action.data.card_name || action.data.card?.name || '未知卡牌';
+            const cardLevel = action.data.card_level || action.data.card?.level || '?';
+            const blindText = action.data.blind ? ' [盲预购]' : '';
+            dataDisplay = `预购卡牌: ${cardName} (Lv${cardLevel})${blindText}`;
+        } else if (action.type === 'evolve' || action.type === 'EVOLVE_CARD' || action.type === 'evolve_card') {
+            actionIcon = '⚡';
+            // 处理可能的嵌套对象
+            let baseName = '未知';
+            let targetName = '未知';
+            
+            if (typeof action.data.base_card === 'object' && action.data.base_card !== null) {
+                baseName = action.data.base_card.name || '未知';
+            } else if (typeof action.data.base_card === 'string') {
+                baseName = action.data.base_card;
+            }
+            
+            if (typeof action.data.target_card === 'object' && action.data.target_card !== null) {
+                targetName = action.data.target_card.name || '未知';
+            } else if (typeof action.data.target_card === 'string') {
+                targetName = action.data.target_card;
+            }
+            
+            dataDisplay = `进化: ${baseName} → ${targetName}`;
         } else if (action.type === 'return_balls') {
-            const balls = Object.entries(action.data).map(([k, v]) => `${k}×${v}`).join(', ');
-            dataDisplay = `放回球: ${balls}`;
+            actionIcon = '↩️';
+            const ballEmojis = {
+                '黑': '⚫', '粉': '🌸', '黄': '🟡',
+                '蓝': '🔵', '红': '🔴', '大师球': '🟣'
+            };
+            const balls = Object.entries(action.data)
+                .filter(([k, v]) => v > 0)
+                .map(([k, v]) => `${ballEmojis[k] || k}×${v}`)
+                .join(' ');
+            dataDisplay = `放回球: ${balls || '无'}`;
         } else {
-            dataDisplay = JSON.stringify(action.data);
+            actionIcon = '❓';
+            dataDisplay = `未知动作类型: ${action.type}`;
         }
         
         return `
             <div class="replay-action-item ${!isSuccess ? 'failed' : ''}">
-                <div class="replay-action-type">${isSuccess ? '✅' : '❌'} ${action.type.toUpperCase()}</div>
+                <div class="replay-action-type">${isSuccess ? '✅' : '❌'} ${actionIcon} ${formatActionType(action.type)}</div>
                 <div class="replay-action-data">${dataDisplay}</div>
-                ${action.message ? `<div class="replay-action-message">${action.message}</div>` : ''}
             </div>
         `;
     }).join('') : '<p style="color: #95a5a6;">本回合无动作记录</p>';
@@ -280,6 +320,22 @@ function formatBalls(balls) {
         .filter(([_, count]) => count > 0)
         .map(([ball, count]) => `${ballEmojis[ball] || ball}×${count}`)
         .join(' ');
+}
+
+/**
+ * 格式化动作类型名称
+ */
+function formatActionType(type) {
+    const typeNames = {
+        'take_balls': '拿取球',
+        'buy_card': '购买卡牌',
+        'reserve_card': '预购卡牌',
+        'evolve': '进化',
+        'EVOLVE_CARD': '进化',
+        'evolve_card': '进化',
+        'return_balls': '放回球'
+    };
+    return typeNames[type] || type;
 }
 
 /**

@@ -1595,6 +1595,438 @@ select {
         width: 98%;
 }
 
+/* ============================================
+   🔧 调试面板样式 - 清晰易用版
+   ============================================ */
+
+/* 背景遮罩层 */
+.debug-overlay {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    background: rgba(0, 0, 0, 0.85) !important;
+    z-index: 99998 !important;
+    display: none !important;
+}
+
+.debug-overlay[style*="display: block"] {
+    display: block !important;
+}
+
+/* 面板主容器 */
+.debug-panel {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    background: #1a1a2e;
+    border: 3px solid #16213e;
+    border-radius: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+    z-index: 99999 !important;
+    max-width: 900px;
+    max-height: 85vh;
+    width: 92%;
+    display: none;
+    flex-direction: column;
+}
+
+.debug-panel[style*="display: flex"] {
+    display: flex !important;
+}
+
+/* 头部 */
+.debug-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 25px 30px;
+    background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+    border-bottom: 3px solid #e94560;
+    border-radius: 17px 17px 0 0;
+}
+
+.debug-panel-header h3 {
+    margin: 0;
+    color: #f1f1f1;
+    font-size: 1.8em;
+    font-weight: 600;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* 主体区域 */
+.debug-panel-body {
+    padding: 25px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1;
+    min-height: 0;
+    background: #1a1a2e;
+}
+
+.debug-panel-body::-webkit-scrollbar {
+    width: 10px;
+}
+
+.debug-panel-body::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+}
+
+.debug-panel-body::-webkit-scrollbar-thumb {
+    background: #e94560;
+    border-radius: 10px;
+}
+
+.debug-panel-body::-webkit-scrollbar-thumb:hover {
+    background: #d63447;
+}
+
+/* 功能区块 */
+.debug-section {
+    margin-bottom: 30px;
+    padding: 25px;
+    background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
+    border: 2px solid #e94560;
+    border-radius: 15px;
+    box-shadow: 0 4px 15px rgba(233, 69, 96, 0.2);
+}
+
+.debug-section:last-child {
+    margin-bottom: 0;
+}
+
+.debug-section h4 {
+    margin: 0 0 20px 0;
+    color: #e94560;
+    font-size: 1.4em;
+    font-weight: 600;
+    text-align: center;
+    padding-bottom: 15px;
+    border-bottom: 2px solid rgba(233, 69, 96, 0.3);
+}
+
+/* ============================================
+   球控制区域 - 横向3列布局
+   ============================================ */
+.debug-balls-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+}
+
+.debug-ball-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 15px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px solid rgba(233, 69, 96, 0.3);
+    border-radius: 12px;
+    transition: all 0.3s;
+}
+
+.debug-ball-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: #e94560;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(233, 69, 96, 0.3);
+}
+
+.debug-ball-emoji {
+    font-size: 3em;
+    margin-bottom: 10px;
+    filter: drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.5));
+}
+
+.debug-ball-name {
+    font-size: 1.1em;
+    font-weight: 600;
+    color: #f1f1f1;
+    margin-bottom: 15px;
+}
+
+/* 球数量控制按钮 */
+.debug-ball-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+    justify-content: center;
+}
+
+.debug-ball-controls button {
+    width: 45px;
+    height: 45px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 1.5em;
+    font-weight: bold;
+    transition: all 0.2s;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.debug-ball-controls button:first-child {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: white;
+}
+
+.debug-ball-controls button:last-child {
+    background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+    color: white;
+}
+
+.debug-ball-controls button:hover:not(:disabled) {
+    transform: scale(1.15);
+    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.5);
+}
+
+.debug-ball-controls button:active:not(:disabled) {
+    transform: scale(1.05);
+}
+
+.debug-ball-controls button:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.debug-ball-controls span {
+    min-width: 50px;
+    text-align: center;
+    font-weight: bold;
+    color: #f39c12;
+    font-size: 1.6em;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* ============================================
+   卡牌区域
+   ============================================ */
+
+/* Tab切换按钮 */
+.debug-tabs {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.debug-tab {
+    flex: 1;
+    padding: 15px 20px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px solid rgba(233, 69, 96, 0.3);
+    border-radius: 10px;
+    color: #f1f1f1;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-size: 1.2em;
+    font-weight: 600;
+    text-align: center;
+}
+
+.debug-tab:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: #e94560;
+}
+
+.debug-tab.active {
+    background: linear-gradient(135deg, #e94560 0%, #d63447 100%);
+    border-color: #e94560;
+    color: white;
+    box-shadow: 0 4px 12px rgba(233, 69, 96, 0.4);
+}
+
+/* 卡牌来源选择 */
+.debug-card-source {
+    display: flex;
+    gap: 30px;
+    margin-bottom: 20px;
+    padding: 18px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+    border: 2px solid rgba(233, 69, 96, 0.2);
+}
+
+.debug-card-source label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #f1f1f1;
+    cursor: pointer;
+    font-size: 1.15em;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.debug-card-source label:hover {
+    color: #e94560;
+}
+
+.debug-card-source input[type="radio"] {
+    width: 22px;
+    height: 22px;
+    cursor: pointer;
+    accent-color: #e94560;
+}
+
+/* 卡牌列表容器 */
+#debug-card-selection {
+    max-height: 350px;
+    overflow-y: auto;
+    padding-right: 5px;
+}
+
+#debug-card-selection::-webkit-scrollbar {
+    width: 8px;
+}
+
+#debug-card-selection::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+}
+
+#debug-card-selection::-webkit-scrollbar-thumb {
+    background: #e94560;
+    border-radius: 10px;
+}
+
+.debug-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* 卡牌项 */
+.debug-card-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 20px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    border: 2px solid rgba(233, 69, 96, 0.2);
+    transition: all 0.3s;
+}
+
+.debug-card-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: #e94560;
+    transform: translateX(5px);
+    box-shadow: 0 4px 12px rgba(233, 69, 96, 0.3);
+}
+
+.debug-card-info {
+    flex: 1;
+}
+
+.debug-card-name {
+    font-weight: 600;
+    color: #f1f1f1;
+    margin-bottom: 8px;
+    font-size: 1.15em;
+}
+
+.debug-card-details {
+    font-size: 1em;
+    color: #95a5a6;
+}
+
+/* 添加按钮 */
+.debug-card-action {
+    padding: 12px 25px;
+    background: linear-gradient(135deg, #e94560 0%, #d63447 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1.1em;
+    font-weight: 600;
+    transition: all 0.3s;
+    box-shadow: 0 4px 10px rgba(233, 69, 96, 0.4);
+}
+
+.debug-card-action:hover {
+    background: linear-gradient(135deg, #d63447 0%, #c92a40 100%);
+    transform: scale(1.08);
+    box-shadow: 0 6px 15px rgba(233, 69, 96, 0.6);
+}
+
+.debug-card-action:active {
+    transform: scale(1.02);
+}
+
+/* 等级选择器 */
+.debug-level-selector {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.debug-level-btn {
+    flex: 1;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px solid rgba(233, 69, 96, 0.3);
+    border-radius: 10px;
+    color: #f1f1f1;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-size: 1.1em;
+    font-weight: 600;
+}
+
+.debug-level-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: #e94560;
+}
+
+.debug-level-btn.active {
+    background: linear-gradient(135deg, #e94560 0%, #d63447 100%);
+    border-color: #e94560;
+    color: white;
+    box-shadow: 0 4px 12px rgba(233, 69, 96, 0.4);
+}
+
+/* ============================================
+   移动端适配
+   ============================================ */
+@media (max-width: 900px) {
+    .debug-panel {
+        width: 96%;
+        max-height: 88vh;
+    }
+    
+    .debug-panel-header {
+        padding: 20px;
+    }
+    
+    .debug-panel-header h3 {
+        font-size: 1.4em;
+    }
+    
+    .debug-balls-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 15px;
+    }
+    
+    .debug-ball-emoji {
+        font-size: 2.5em;
+    }
+    
+    .debug-card-source {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .debug-ball-controls span {
+        font-size: 1.4em;
+    }
+}
+
 .info-modal-header {
         padding: 20px;
 }
@@ -1727,4 +2159,156 @@ select {
     padding-top: 25px;
     border-top: 2px dashed rgba(255, 255, 255, 0.2);
     text-align: center;
+}
+
+/* ============ 进化控制按钮 ============ */
+.evolution-controls {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    margin: 10px 0;
+    padding: 15px 20px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 2px solid #e94560;
+    border-radius: 12px;
+    box-shadow: 0 6px 15px rgba(233, 69, 96, 0.3);
+}
+
+.evolution-controls button {
+    flex: 1;
+    max-width: 200px;
+    padding: 15px 30px;
+    font-size: 18px;
+    font-weight: bold;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.evolution-controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    filter: grayscale(100%);
+}
+
+.evolution-controls button:not(:disabled):hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+}
+
+.evolution-controls .btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.evolution-controls .btn-primary.btn-highlight {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+    0%, 100% {
+        box-shadow: 0 0 20px rgba(245, 87, 108, 0.7);
+    }
+    50% {
+        box-shadow: 0 0 40px rgba(245, 87, 108, 1);
+    }
+}
+
+.evolution-controls .btn-secondary {
+    background: linear-gradient(135deg, #3a3a52 0%, #2a2a3e 100%);
+    color: #ffffff;
+}
+
+.evolution-controls .btn-secondary:hover {
+    background: linear-gradient(135deg, #4a4a62 0%, #3a3a4e 100%);
+}
+
+/* ============ 进化阶段卡牌高亮 ============ */
+.evolution-base-selected {
+    border: 3px solid #667eea !important;
+    box-shadow: 0 0 25px rgba(102, 126, 234, 0.8) !important;
+    transform: scale(1.05) !important;
+    animation: pulse-blue 1.5s ease-in-out infinite;
+}
+
+.evolution-target-selected {
+    border: 3px solid #f5576c !important;
+    box-shadow: 0 0 25px rgba(245, 87, 108, 0.8) !important;
+    transform: scale(1.05) !important;
+    animation: pulse-pink 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-blue {
+    0%, 100% {
+        box-shadow: 0 0 25px rgba(102, 126, 234, 0.6);
+    }
+    50% {
+        box-shadow: 0 0 35px rgba(102, 126, 234, 1);
+    }
+}
+
+@keyframes pulse-pink {
+    0%, 100% {
+        box-shadow: 0 0 25px rgba(245, 87, 108, 0.6);
+    }
+    50% {
+        box-shadow: 0 0 35px rgba(245, 87, 108, 1);
+    }
+}
+
+/* ============ 最后一轮警告横幅 ============ */
+.final-round-banner {
+    position: sticky;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    background: linear-gradient(135deg, #ff4757 0%, #ff6348 100%);
+    color: white;
+    padding: 20px;
+    text-align: center;
+    font-size: 1.5em;
+    font-weight: bold;
+    box-shadow: 0 4px 20px rgba(255, 71, 87, 0.5);
+    animation: warning-pulse 2s ease-in-out infinite;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border-bottom: 4px solid #c0392b;
+}
+
+@keyframes warning-pulse {
+    0%, 100% {
+        background: linear-gradient(135deg, #ff4757 0%, #ff6348 100%);
+        box-shadow: 0 4px 20px rgba(255, 71, 87, 0.5);
+    }
+    50% {
+        background: linear-gradient(135deg, #ff6348 0%, #ff4757 100%);
+        box-shadow: 0 4px 30px rgba(255, 71, 87, 0.8);
+        transform: scale(1.01);
+    }
+}
+
+/* 移动端适配 */
+@media (max-width: 900px) {
+    .final-round-banner {
+        font-size: 1em;
+        padding: 15px 10px;
+        letter-spacing: 1px;
+    }
+}
+
+/* ============ 通用动画 ============ */
+@keyframes pulse {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 8px 30px rgba(245, 87, 108, 0.4);
+    }
+    50% {
+        transform: scale(1.03);
+        box-shadow: 0 12px 40px rgba(245, 87, 108, 0.6);
+    }
 }

@@ -24,6 +24,7 @@ let currentRoom = null;
 let playerName = null;
 let isCreator = false;
 let roomPollingInterval = null;
+let userActiveGame = null;  // 用户的活跃游戏信息
 
 // 房间列表分页状态
 let allRooms = [];  // 所有房间
@@ -116,16 +117,6 @@ function showToast(message, type = 'info') {
  * 初始化应用
  */
 async function initApp() {
-    // 显示当前登录用户
-    const currentPlayerName = sessionStorage.getItem('currentPlayerName');
-    if (currentPlayerName) {
-        playerName = currentPlayerName;
-        const userNameElement = document.getElementById('current-user-name');
-        if (userNameElement) {
-            userNameElement.textContent = currentPlayerName;
-        }
-    }
-    
     // 检查API连接
     try {
         await api.healthCheck();
@@ -138,8 +129,163 @@ async function initApp() {
     // 绑定事件监听器
     bindEventListeners();
     
-    // 检查是否有未完成的游戏
-    await checkUnfinishedGame();
+    // 检查localStorage中是否有保存的用户名
+    const savedUsername = localStorage.getItem('splendor_username');
+    if (savedUsername) {
+        // 尝试自动登录（重连）
+        try {
+            const result = await api.login(savedUsername, true);  // force_reconnect = true
+            if (result.success) {
+                await handleLoginSuccess(result);
+                return;
+            }
+        } catch (error) {
+            console.log('自动重连失败:', error);
+            // 清除无效的用户名
+            localStorage.removeItem('splendor_username');
+        }
+    }
+    
+    // 显示登录界面
+    switchScreen('login-screen');
+}
+
+/**
+ * 处理用户登录
+ */
+async function handleLogin() {
+    const usernameInput = document.getElementById('username-input');
+    const username = usernameInput.value.trim();
+    
+    if (!username) {
+        showToast('请输入用户名', 'error');
+        return;
+    }
+    
+    if (username.length > 20) {
+        showToast('用户名不能超过20个字符', 'error');
+        return;
+    }
+    
+    try {
+        const result = await api.login(username, false);
+        
+        if (result.success) {
+            await handleLoginSuccess(result);
+        }
+    } catch (error) {
+        if (error.message.includes('此玩家已登陆') || error.message.includes('USER_IN_GAME')) {
+            showToast('此玩家正在游戏中，请使用其他用户名', 'error');
+        } else {
+            showToast(`登录失败: ${error.message}`, 'error');
+        }
+    }
+}
+
+/**
+ * 处理登录成功
+ */
+async function handleLoginSuccess(loginResult) {
+    playerName = loginResult.user.username;
+    userActiveGame = loginResult.active_game;
+    
+    // 保存到localStorage
+    localStorage.setItem('splendor_username', playerName);
+    
+    // 更新UI
+    const userNameElement = document.getElementById('current-user-name');
+    if (userNameElement) {
+        userNameElement.textContent = playerName;
+    }
+    
+    // 切换到大厅
+    switchScreen('lobby-screen');
+    
+    // 检查是否有活跃游戏
+    if (loginResult.has_active_game && userActiveGame) {
+        showRejoinGameButton(userActiveGame);
+        
+        if (userActiveGame.status === 'playing') {
+            showToast('检测到未完成的游戏，点击"重新加入游戏"继续', 'info');
+        } else {
+            showToast('检测到未完成的房间，点击"重新加入游戏"返回', 'info');
+        }
+    } else {
+        hideRejoinGameButton();
+    }
+    
+    showToast(loginResult.message, 'success');
+}
+
+/**
+ * 处理登出
+ */
+async function handleLogout() {
+    if (!playerName) return;
+    
+    try {
+        await api.logout(playerName);
+        
+        // 清除本地数据
+        localStorage.removeItem('splendor_username');
+        playerName = null;
+        userActiveGame = null;
+        
+        // 切换到登录界面
+        switchScreen('login-screen');
+        
+        showToast('已退出登录', 'info');
+    } catch (error) {
+        showToast(`登出失败: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * 显示重新加入游戏按钮
+ */
+function showRejoinGameButton(gameInfo) {
+    const container = document.getElementById('rejoin-game-container');
+    if (container) {
+        container.style.display = 'block';
+    }
+}
+
+/**
+ * 隐藏重新加入游戏按钮
+ */
+function hideRejoinGameButton() {
+    const container = document.getElementById('rejoin-game-container');
+    if (container) {
+        container.style.display = 'none';
+    }
+}
+
+/**
+ * 重新加入游戏
+ */
+async function handleRejoinGame() {
+    if (!userActiveGame) {
+        showToast('没有找到活跃的游戏', 'error');
+        return;
+    }
+    
+    currentRoom = userActiveGame.room_id;
+    isCreator = userActiveGame.is_creator;
+    
+    if (userActiveGame.status === 'playing') {
+        // 游戏进行中，直接进入游戏界面
+        switchScreen('game-screen');
+        gameUI.startPolling(currentRoom, playerName);
+        showToast('已重新加入游戏', 'success');
+    } else {
+        // 游戏在等待状态，进入房间界面
+        showRoomScreen();
+        startRoomPolling();
+        showToast('已返回房间', 'success');
+    }
+    
+    hideRejoinGameButton();
+    userActiveGame = null;
 }
 
 /**
@@ -251,10 +397,31 @@ async function reconnectToGame(session, gameState) {
  * 绑定事件监听器
  */
 function bindEventListeners() {
+    // 登录界面
+    const loginBtn = document.getElementById('login-btn');
+    if (loginBtn) {
+        loginBtn.addEventListener('click', handleLogin);
+    }
+    
+    const usernameInput = document.getElementById('username-input');
+    if (usernameInput) {
+        usernameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                handleLogin();
+            }
+        });
+    }
+    
     // 大厅界面
     document.getElementById('logout-btn').addEventListener('click', handleLogout);
     document.getElementById('create-room-btn').addEventListener('click', handleCreateRoom);
     document.getElementById('show-rooms-btn').addEventListener('click', handleShowRooms);
+    
+    // 重新加入游戏按钮
+    const rejoinBtn = document.getElementById('rejoin-game-btn');
+    if (rejoinBtn) {
+        rejoinBtn.addEventListener('click', handleRejoinGame);
+    }
     document.getElementById('refresh-rooms-btn').addEventListener('click', () => loadRoomsList(true));
     document.getElementById('search-rooms-btn').addEventListener('click', handleSearchRooms);
     document.getElementById('back-to-lobby-from-rooms-btn').addEventListener('click', handleBackToLobby);
@@ -346,12 +513,14 @@ function handleLogout() {
  * 创建房间
  */
 async function handleCreateRoom() {
-    // 从sessionStorage获取玩家名
-    playerName = sessionStorage.getItem('currentPlayerName');
-    
     if (!playerName) {
         showToast('未登录，请先登录', 'error');
-        window.location.href = '/login.html';
+        return;
+    }
+    
+    // 检查用户是否有活跃游戏
+    if (userActiveGame) {
+        showToast('你有未完成的游戏，请先完成或退出', 'error');
         return;
     }
 
@@ -520,16 +689,18 @@ function updatePaginationControls(totalPages) {
  * 加入房间
  */
 window.joinRoom = async function(roomId) {
-    // 确保使用sessionStorage中的玩家名
-    playerName = sessionStorage.getItem('currentPlayerName');
-    
     if (!playerName) {
         showToast('未登录，请先登录', 'error');
-        window.location.href = '/login.html';
         return;
     }
     
-    try {
+    // 检查用户是否有活跃游戏
+    if (userActiveGame) {
+        showToast('你有未完成的游戏，请先完成或退出', 'error');
+        return;
+    }
+    
+    try{
         await api.joinRoom(roomId, playerName);
         currentRoom = roomId;
         isCreator = false;
@@ -863,6 +1034,10 @@ async function handleLeaveRoom() {
         stopRoomPolling();
         switchScreen('lobby-screen');
         resetGame();
+        
+        // 清除活跃游戏标记
+        userActiveGame = null;
+        hideRejoinGameButton();
     } catch (error) {
         // 即使出错也返回大厅
         console.error('离开房间失败:', error);
@@ -873,6 +1048,11 @@ async function handleLeaveRoom() {
         stopRoomPolling();
         switchScreen('lobby-screen');
         resetGame();
+        
+        // 清除活跃游戏标记
+        userActiveGame = null;
+        hideRejoinGameButton();
+        
         showToast('已离开房间', 'info');
     }
 }
@@ -913,6 +1093,11 @@ function handleQuitGame() {
         gameUI.stopPolling();
         switchScreen('lobby-screen');
         resetGame();
+        
+        // 清除活跃游戏标记
+        userActiveGame = null;
+        hideRejoinGameButton();
+        
         showToast('已退出游戏', 'info');
     }
 }

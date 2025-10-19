@@ -27,18 +27,29 @@ app = Flask(__name__)
 CORS(app)  # 允许跨域请求
 
 # 用户数据管理
+class UserStatus:
+    """用户状态枚举"""
+    OFFLINE = "offline"      # 离线
+    ONLINE = "online"        # 在线（大厅）
+    IN_ROOM = "in_room"      # 在房间中
+    IN_GAME = "in_game"      # 游戏中
+
 class User:
     """用户类"""
     def __init__(self, username):
         self.username = username
         self.current_room_id = None  # 当前所在房间ID
+        self.status = UserStatus.OFFLINE  # 用户状态
         self.created_at = datetime.now()
         self.last_login = datetime.now()
+        self.is_online = False  # 是否在线
     
     def to_dict(self):
         return {
             "username": self.username,
             "current_room_id": self.current_room_id,
+            "status": self.status,
+            "is_online": self.is_online,
             "created_at": self.created_at.isoformat(),
             "last_login": self.last_login.isoformat()
         }
@@ -231,6 +242,8 @@ class GameRoom:
             "current_player": current_player.name,
             "game_over": self.game.game_over,
             "winner": self.game.winner.name if self.game.winner else None,
+            "rankings": self.game.get_final_rankings() if self.game.game_over else None,
+            "final_round": self.game.final_round_triggered,
             "max_players": self.max_players,
             "victory_points": self.victory_points,
             "turn_number": self.turn_number,
@@ -359,12 +372,13 @@ def login():
     """用户登录（不存在则创建）"""
     data = request.get_json()
     username = data.get('username', '').strip()
+    force_reconnect = data.get('force_reconnect', False)  # 是否强制重连（用于页面刷新）
     
     if not username:
-        return jsonify({"error": "用户名不能为空"}), 400
+        return jsonify({"success": False, "error": "用户名不能为空"}), 400
     
     if len(username) > 20:
-        return jsonify({"error": "用户名不能超过20个字符"}), 400
+        return jsonify({"success": False, "error": "用户名不能超过20个字符"}), 400
     
     with user_lock:
         # 如果用户不存在，创建新用户
@@ -373,9 +387,25 @@ def login():
             # 同时保存到数据库
             game_db.get_or_create_user(username)
             is_new_user = True
+            users[username].is_online = True
+            users[username].status = UserStatus.ONLINE
         else:
-            # 更新最后登录时间
-            users[username].last_login = datetime.now()
+            # 用户已存在，检查是否可以登录
+            user = users[username]
+            
+            # 如果用户有活跃游戏且不是强制重连，拒绝登录
+            if user.current_room_id and user.current_room_id in game_rooms and not force_reconnect:
+                room = game_rooms[user.current_room_id]
+                if username in room.players and room.status != "finished":
+                    return jsonify({
+                        "success": False,
+                        "error": "此玩家已登陆（游戏中）",
+                        "code": "USER_IN_GAME"
+                    }), 409
+            
+            # 允许登录
+            user.is_online = True
+            user.last_login = datetime.now()
             # 同时更新数据库中的最后登录时间
             game_db.get_or_create_user(username)
             is_new_user = False
@@ -396,15 +426,77 @@ def login():
                     "victory_points": room.victory_points,
                     "is_creator": (room.creator_name == username)
                 }
+                # 更新用户状态
+                if room.status == "playing":
+                    user.status = UserStatus.IN_GAME
+                else:
+                    user.status = UserStatus.IN_ROOM
+            else:
+                # 房间不存在或已结束，清除用户的房间记录
+                user.current_room_id = None
+                user.status = UserStatus.ONLINE
         else:
             # 房间不存在或已结束，清除用户的房间记录
             user.current_room_id = None
+            user.status = UserStatus.ONLINE
     
     return jsonify({
         "success": True,
         "message": "登录成功" if not is_new_user else "欢迎新玩家！",
         "user": user.to_dict(),
         "is_new_user": is_new_user,
+        "has_active_game": current_room_status is not None,
+        "active_game": current_room_status
+    })
+
+@app.route('/api/logout', methods=['POST'])
+def logout():
+    """用户登出"""
+    data = request.get_json()
+    username = data.get('username', '').strip()
+    
+    if not username:
+        return jsonify({"success": False, "error": "用户名不能为空"}), 400
+    
+    with user_lock:
+        if username not in users:
+            return jsonify({"success": False, "error": "用户不存在"}), 404
+        
+        user = users[username]
+        user.is_online = False
+        user.status = UserStatus.OFFLINE
+    
+    return jsonify({
+        "success": True,
+        "message": "登出成功"
+    })
+
+@app.route('/api/users/<username>/status', methods=['GET'])
+def get_user_status(username):
+    """获取用户当前状态"""
+    with user_lock:
+        if username not in users:
+            return jsonify({"success": False, "error": "用户不存在"}), 404
+        
+        user = users[username]
+        
+        # 检查用户是否有进行中的游戏
+        current_room_status = None
+        if user.current_room_id and user.current_room_id in game_rooms:
+            room = game_rooms[user.current_room_id]
+            if username in room.players and room.status != "finished":
+                current_room_status = {
+                    "room_id": room.room_id,
+                    "status": room.status,
+                    "players": room.players,
+                    "max_players": room.max_players,
+                    "victory_points": room.victory_points,
+                    "is_creator": (room.creator_name == username)
+                }
+    
+    return jsonify({
+        "success": True,
+        "user": user.to_dict(),
         "has_active_game": current_room_status is not None,
         "active_game": current_room_status
     })
@@ -450,10 +542,11 @@ def create_room():
         game_rooms[room_id] = GameRoom(room_id, player_name)
         player_to_room[player_name] = room_id
         
-        # 更新用户的当前房间
+        # 更新用户的当前房间和状态
         with user_lock:
             if player_name in users:
                 users[player_name].current_room_id = room_id
+                users[player_name].status = UserStatus.IN_ROOM
         
     return jsonify({
         "room_id": room_id,
@@ -512,10 +605,11 @@ def join_room(room_id):
         player_to_room[player_name] = room_id
         room.last_activity = datetime.now()
         
-        # 更新用户的当前房间
+        # 更新用户的当前房间和状态
         with user_lock:
             if player_name in users:
                 users[player_name].current_room_id = room_id
+                users[player_name].status = UserStatus.IN_ROOM
         
     return jsonify({
         "message": "成功加入房间",
@@ -682,6 +776,7 @@ def leave_room(room_id):
                     with user_lock:
                         if p in users:
                             users[p].current_room_id = None
+                            users[p].status = UserStatus.ONLINE
                 del game_rooms[room_id]
                 return jsonify({
                     "message": "房主离开，房间已解散",
@@ -698,6 +793,7 @@ def leave_room(room_id):
             with user_lock:
                 if player_name in users:
                     users[player_name].current_room_id = None
+                    users[player_name].status = UserStatus.ONLINE
                 
             room.last_activity = datetime.now()
             
@@ -715,6 +811,7 @@ def leave_room(room_id):
             with user_lock:
                 if player_name in users:
                     users[player_name].current_room_id = None
+                    users[player_name].status = UserStatus.ONLINE
             
             # 注意：不从room.players中移除，保持游戏完整性
             # 只是让玩家可以创建/加入新房间
@@ -834,6 +931,12 @@ def start_game(room_id):
             print(f"{'='*60}\n")
             
             room.last_activity = datetime.now()
+            
+            # 更新所有玩家状态为游戏中
+            with user_lock:
+                for pname in room.players:
+                    if pname in users and not pname.startswith('AI_'):
+                        users[pname].status = UserStatus.IN_GAME
             
             return jsonify({
                 "message": "游戏开始",
@@ -1306,14 +1409,15 @@ def evolve_card(room_id):
         
         # 执行进化
         if player.evolve(base_card, target_card):
-            # 从场上或预购区移除目标卡
+            # 从场上或预购区移除目标卡（在原位置补充新牌）
             for level, cards in room.game.tableau.items():
                 if target_card in cards:
+                    card_index = cards.index(target_card)  # 记录原位置
                     cards.remove(target_card)
                     # 补充场上卡牌
                     deck = [room.game.deck_lv1, room.game.deck_lv2, room.game.deck_lv3][level-1]
                     if deck:
-                        cards.append(deck.pop())
+                        cards.insert(card_index, deck.pop())  # 在原位置插入
                     break
             
             if room.game.rare_card == target_card:
@@ -1346,7 +1450,7 @@ def evolve_card(room_id):
             
             # 记录玩家行动描述 - 注意：进化是行动之外的额外步骤，这里记录但前端会在进化通知中单独展示
             # 这个记录主要用于后续回顾
-            player.last_action += f" → ⚡进化: {base_card.name}→{target_card.name}"
+            player.last_action += f" → ⚡ 进化: {base_card.name} → {target_card.name}"
             
             room.last_activity = datetime.now()
             
@@ -1770,6 +1874,287 @@ def user_login():
             "success": False,
             "error": str(e)
         }), 500
+
+# =======================
+# 调试API
+# =======================
+
+@app.route('/api/rooms/<room_id>/debug/adjust_balls', methods=['POST'])
+def debug_adjust_balls(room_id):
+    """调整玩家持有球（调试用）"""
+    data = request.get_json()
+    player_name = data.get('player_name')
+    ball_type_str = data.get('ball_type')
+    delta = data.get('delta', 0)
+    
+    with room_lock:
+        if room_id not in game_rooms:
+            return jsonify({"error": "房间不存在"}), 404
+        
+        room = game_rooms[room_id]
+        if not room.game:
+            return jsonify({"error": "游戏未开始"}), 400
+        
+        # 找到玩家
+        player = None
+        for p in room.game.players:
+            if p.name == player_name:
+                player = p
+                break
+        
+        if not player:
+            return jsonify({"error": "玩家不存在"}), 404
+        
+        # 转换球类型
+        ball_type = None
+        for bt in BallType:
+            if bt.value == ball_type_str:
+                ball_type = bt
+                break
+        
+        if not ball_type:
+            return jsonify({"error": "球类型无效"}), 400
+        
+        # 调整球数（从球池拿或放回球池）
+        new_count = max(0, player.balls.get(ball_type, 0) + delta)
+        old_count = player.balls.get(ball_type, 0)
+        actual_delta = new_count - old_count
+        
+        player.balls[ball_type] = new_count
+        
+        # 更新球池（如果增加球，从球池拿；如果减少球，放回球池）
+        if actual_delta > 0:
+            room.game.ball_pool[ball_type] = max(0, room.game.ball_pool[ball_type] - actual_delta)
+        else:
+            room.game.ball_pool[ball_type] += abs(actual_delta)
+        
+        room.last_activity = datetime.now()
+        
+        return jsonify({
+            "success": True,
+            "message": f"已调整{ball_type_str}: {old_count} → {new_count}",
+            "new_count": new_count
+        })
+
+@app.route('/api/rooms/<room_id>/debug/adjust_permanent_balls', methods=['POST'])
+def debug_adjust_permanent_balls(room_id):
+    """调整玩家永久折扣（调试用）
+    注意：这个不会真的添加卡牌，只是直接修改永久折扣数值
+    """
+    data = request.get_json()
+    player_name = data.get('player_name')
+    ball_type_str = data.get('ball_type')
+    delta = data.get('delta', 0)
+    
+    with room_lock:
+        if room_id not in game_rooms:
+            return jsonify({"error": "房间不存在"}), 404
+        
+        room = game_rooms[room_id]
+        if not room.game:
+            return jsonify({"error": "游戏未开始"}), 400
+        
+        # 找到玩家
+        player = None
+        for p in room.game.players:
+            if p.name == player_name:
+                player = p
+                break
+        
+        if not player:
+            return jsonify({"error": "玩家不存在"}), 404
+        
+        # 转换球类型
+        ball_type = None
+        for bt in BallType:
+            if bt.value == ball_type_str:
+                ball_type = bt
+                break
+        
+        if not ball_type or ball_type == BallType.MASTER:
+            return jsonify({"error": "球类型无效（永久折扣不包括大师球）"}), 400
+        
+        # 创建一个虚拟卡牌来提供永久折扣
+        # 实际上直接在已有的卡牌上修改会更合理，但为了简化，我们添加一个隐形卡牌
+        if delta > 0:
+            # 添加虚拟卡牌
+            from copy import deepcopy
+            virtual_card = PokemonCard(
+                card_id=9999,  # 使用特殊ID
+                name=f"调试折扣({ball_type_str})",
+                level=1,
+                rarity=Rarity.NORMAL,
+                victory_points=0,
+                cost={},
+                permanent_balls={ball_type: abs(delta)}
+            )
+            player.display_area.append(virtual_card)
+        else:
+            # 减少折扣：移除虚拟卡牌
+            for card in player.display_area[:]:
+                if card.card_id == 9999 and ball_type in card.permanent_balls:
+                    if card.permanent_balls[ball_type] <= abs(delta):
+                        player.display_area.remove(card)
+                        break
+                    else:
+                        card.permanent_balls[ball_type] -= abs(delta)
+                        break
+        
+        # 重新计算永久折扣
+        permanent = player.get_permanent_balls()
+        
+        room.last_activity = datetime.now()
+        
+        return jsonify({
+            "success": True,
+            "message": f"已调整{ball_type_str}永久折扣",
+            "new_count": permanent.get(ball_type, 0)
+        })
+
+@app.route('/api/rooms/<room_id>/debug/add_card', methods=['POST'])
+def debug_add_card(room_id):
+    """从场上添加卡牌到玩家（调试用）"""
+    data = request.get_json()
+    player_name = data.get('player_name')
+    card_id = data.get('card_id')
+    card_type = data.get('card_type')  # 'owned' or 'reserved'
+    source = data.get('source')  # 'tableau'
+    
+    with room_lock:
+        if room_id not in game_rooms:
+            return jsonify({"error": "房间不存在"}), 404
+        
+        room = game_rooms[room_id]
+        if not room.game:
+            return jsonify({"error": "游戏未开始"}), 400
+        
+        # 找到玩家
+        player = None
+        for p in room.game.players:
+            if p.name == player_name:
+                player = p
+                break
+        
+        if not player:
+            return jsonify({"error": "玩家不存在"}), 404
+        
+        # 找到卡牌
+        target_card = room.game.find_card_by_id(card_id, player)
+        
+        if not target_card:
+            return jsonify({"error": "卡牌不存在"}), 404
+        
+        # 复制卡牌（避免引用问题）
+        from copy import deepcopy
+        card_copy = deepcopy(target_card)
+        
+        # 添加到玩家
+        if card_type == 'owned':
+            player.display_area.append(card_copy)
+            player.victory_points += card_copy.victory_points
+        else:  # reserved
+            if len(player.reserved_cards) >= 3:
+                return jsonify({"error": "预定卡牌已满（最多3张）"}), 400
+            player.reserved_cards.append(card_copy)
+        
+        # 从场上移除并补充（在原位置补充新牌）
+        removed = False
+        for level, cards in room.game.tableau.items():
+            if target_card in cards:
+                card_index = cards.index(target_card)  # 记录原位置
+                cards.remove(target_card)
+                # 补充卡牌
+                deck = [room.game.deck_lv1, room.game.deck_lv2, room.game.deck_lv3][level-1]
+                if deck:
+                    cards.insert(card_index, deck.pop())  # 在原位置插入
+                removed = True
+                break
+        
+        # 检查稀有/传说卡
+        if not removed:
+            if room.game.rare_card == target_card:
+                if room.game.rare_deck:
+                    room.game.rare_card = room.game.rare_deck.pop()
+                else:
+                    room.game.rare_card = None
+                removed = True
+            elif room.game.legendary_card == target_card:
+                if room.game.legendary_deck:
+                    room.game.legendary_card = room.game.legendary_deck.pop()
+                else:
+                    room.game.legendary_card = None
+                removed = True
+        
+        room.last_activity = datetime.now()
+        
+        return jsonify({
+            "success": True,
+            "message": f"已添加卡牌: {card_copy.name}",
+            "card_name": card_copy.name
+        })
+
+@app.route('/api/rooms/<room_id>/debug/add_card_from_deck', methods=['POST'])
+def debug_add_card_from_deck(room_id):
+    """从牌堆添加卡牌到玩家（调试用）"""
+    data = request.get_json()
+    player_name = data.get('player_name')
+    level = data.get('level')
+    card_type = data.get('card_type')  # 'owned' or 'reserved'
+    
+    with room_lock:
+        if room_id not in game_rooms:
+            return jsonify({"error": "房间不存在"}), 404
+        
+        room = game_rooms[room_id]
+        if not room.game:
+            return jsonify({"error": "游戏未开始"}), 400
+        
+        # 找到玩家
+        player = None
+        for p in room.game.players:
+            if p.name == player_name:
+                player = p
+                break
+        
+        if not player:
+            return jsonify({"error": "玩家不存在"}), 404
+        
+        # 获取对应等级的牌堆
+        if level == 1:
+            deck = room.game.deck_lv1
+        elif level == 2:
+            deck = room.game.deck_lv2
+        elif level == 3:
+            deck = room.game.deck_lv3
+        else:
+            return jsonify({"error": "等级无效"}), 400
+        
+        if not deck:
+            return jsonify({"error": f"Lv{level}牌堆已空"}), 400
+        
+        # 从牌堆顶抽取卡牌
+        from copy import deepcopy
+        card = deepcopy(deck.pop(0))
+        
+        # 添加到玩家
+        if card_type == 'owned':
+            player.display_area.append(card)
+            player.victory_points += card.victory_points
+        else:  # reserved
+            if len(player.reserved_cards) >= 3:
+                # 放回牌堆
+                deck.insert(0, card)
+                return jsonify({"error": "预定卡牌已满（最多3张）"}), 400
+            player.reserved_cards.append(card)
+        
+        room.last_activity = datetime.now()
+        
+        return jsonify({
+            "success": True,
+            "message": f"已从Lv{level}牌堆添加: {card.name}",
+            "card_name": card.name
+        })
+
 
 def load_users_from_database():
     """从数据库加载所有用户到内存"""

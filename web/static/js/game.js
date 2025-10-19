@@ -45,6 +45,15 @@ class GameUI {
         this.waitingForReturnBalls = false;  // 是否在等待放回球
         this.currentActionSteps = [];  // 记录当前行动的所有步骤
         this.lastActionPlayer = null;  // 上一个行动的玩家，用于检测行动切换
+        
+        // 进化系统
+        this.inEvolutionPhase = false;  // 是否处于进化阶段
+        this.lastClickedCards = [];  // 记录最近连续点击的卡牌（最多保留2张）
+        this.selectedBaseCard = null;  // 选中的基础卡（已拥有的）
+        this.selectedTargetCard = null;  // 选中的目标卡（场上/预定区的）
+        
+        // 最后一轮提示
+        this.finalRoundNotified = false;  // 是否已显示最后一轮提示
     }
 
     /**
@@ -90,6 +99,21 @@ class GameUI {
      */
     selectBall(ballType, element) {
         const ballPool = this.currentGameState.ball_pool;
+        
+        // 如果在进化阶段点击了球，重置卡牌选择和高亮
+        if (this.inEvolutionPhase) {
+            this.lastClickedCards = [];
+            this.selectedBaseCard = null;
+            this.selectedTargetCard = null;
+            this.clearEvolutionHighlight();
+            
+            // 重置进化按钮
+            const evolveBtn = document.getElementById('evolve-btn');
+            if (evolveBtn) {
+                evolveBtn.disabled = true;
+                evolveBtn.classList.remove('btn-highlight');
+            }
+        }
         
         // 统计已选择的颜色种类
         const uniqueColors = [...new Set(this.selectedBalls)];
@@ -422,6 +446,12 @@ class GameUI {
             return;
         }
         
+        // 如果在进化阶段，处理进化卡牌选择
+        if (this.inEvolutionPhase) {
+            this.handleEvolutionCardClick(card, 'tableau');
+            return;
+        }
+        
         // 清除之前的选择
         document.querySelectorAll('.pokemon-card.selected, .rare-card.selected, .legendary-card.selected').forEach(el => {
             el.classList.remove('selected');
@@ -688,8 +718,7 @@ class GameUI {
             const titleHTML = `
                 <h3>
                     ${isCurrentTurn ? '▶️ ' : ''}
-                    玩家${playerNumber}${isMe ? '（我）' : ''}: ${playerName}
-                    ${isMe ? ' 👤' : ''}
+                    玩家${playerNumber}${isMe ? '（👤我）' : ''}: ${playerName}
                 </h3>
             `;
             
@@ -718,9 +747,9 @@ class GameUI {
     /**
      * 格式化卡牌信息（用于显示已拥有/预购卡牌）
      */
-    formatCardInfo(card, isReserved = false, isClickable = false) {
+    formatCardInfo(card, isReserved = false, isClickable = false, cardArea = 'reserved') {
         const miniCardClass = isClickable ? 'mini-card mini-card-clickable' : 'mini-card';
-        const cardDataAttr = isClickable ? ` data-card='${JSON.stringify(card)}'` : '';
+        const cardDataAttr = isClickable ? ` data-card='${JSON.stringify(card)}' data-card-area='${cardArea}'` : '';
         
         let info = `<div class="${miniCardClass}"${cardDataAttr}>`;
         
@@ -778,9 +807,6 @@ class GameUI {
         const playerDiv = document.createElement('div');
         playerDiv.className = 'player-info';
 
-        const nameClass = isCurrentTurn ? 'player-name current-turn' : 'player-name';
-        const turnIndicator = isCurrentTurn ? '▶️ ' : '';
-
         // 检查是否是当前玩家自己
         const isMyself = playerName === this.currentPlayerName;
         // 检查是否是我的回合
@@ -805,19 +831,30 @@ class GameUI {
             return `<span class="gem-badge ${config?.class || ''}" style="${opacity}">${config?.emoji || ball} ${count}</span>`;
         }).join('');
 
-        // 已拥有卡牌
+        // 已拥有卡牌 - 在进化阶段可点击
+        const canClickOwned = isMyself && isMyTurn && this.inEvolutionPhase;
         const cardsDisplay = (state.display_area || [])
-            .map(card => this.formatCardInfo(card))
+            .map(card => this.formatCardInfo(card, false, canClickOwned, 'owned'))
             .join('') || '<div class="no-cards">暂无</div>';
 
-        // 预定卡牌 - 只有在我的回合且是我自己的预购区时才可以点击
+        // 预定卡牌 - 在进化阶段或正常回合都可以点击
         const canClickReserved = isMyself && isMyTurn;
         const reservedDisplay = (state.reserved_cards || [])
-            .map(card => this.formatCardInfo(card, true, canClickReserved))
+            .map(card => this.formatCardInfo(card, true, canClickReserved, 'reserved'))
             .join('') || '<div class="no-cards">暂无</div>';
 
+        // 检查是否在进化阶段，决定按钮的初始显示状态
+        const evolutionDisplay = this.inEvolutionPhase ? 'flex' : 'none';
+        const evolveButtonState = (this.selectedBaseCard && this.selectedTargetCard) ? '' : 'disabled';
+        const evolveButtonClass = (this.selectedBaseCard && this.selectedTargetCard) ? 'btn-highlight' : '';
+        
         playerDiv.innerHTML = `
-            <div class="${nameClass}">${turnIndicator}${playerName}</div>
+            ${isMyself && isMyTurn ? `
+                <div class="evolution-controls" id="evolution-controls-${playerName}" style="display: ${evolutionDisplay};">
+                    <button id="evolve-btn" class="btn btn-primary ${evolveButtonClass}" ${evolveButtonState}>⚡ 进化</button>
+                    <button id="skip-evolution-btn" class="btn btn-secondary">⏭️ 跳过进化</button>
+                </div>
+            ` : ''}
             <div class="player-stats">
                 <div class="stat-item">
                     <span class="stat-label">胜利点数:</span>
@@ -857,13 +894,54 @@ class GameUI {
                         if (cardData) {
                             try {
                                 const card = JSON.parse(cardData);
-                                this.showReservedCardActions(card);
+                                // 如果在进化阶段，处理进化选择
+                                if (this.inEvolutionPhase) {
+                                    this.handleEvolutionCardClick(card, 'reserved');
+                                } else {
+                                    // 否则显示购买选项
+                                    this.showReservedCardActions(card);
+                                }
                             } catch (error) {
                                 console.error('解析卡牌数据失败:', error);
                             }
                         }
                     }
                 });
+            }
+        }
+        
+        // 如果是我自己的已拥有卡牌区，在进化阶段添加点击事件
+        if (canClickOwned) {
+            const ownedGrid = playerDiv.querySelector('.player-cards .cards-grid');
+            if (ownedGrid) {
+                ownedGrid.addEventListener('click', (e) => {
+                    const miniCard = e.target.closest('.mini-card-clickable');
+                    if (miniCard) {
+                        const cardData = miniCard.dataset.card;
+                        if (cardData) {
+                            try {
+                                const card = JSON.parse(cardData);
+                                this.handleEvolutionCardClick(card, 'owned');
+                            } catch (error) {
+                                console.error('解析卡牌数据失败:', error);
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        // 如果在进化阶段，绑定进化按钮事件
+        if (isMyself && isMyTurn && this.inEvolutionPhase) {
+            const evolveBtn = playerDiv.querySelector('#evolve-btn');
+            const skipBtn = playerDiv.querySelector('#skip-evolution-btn');
+            
+            if (evolveBtn) {
+                evolveBtn.onclick = () => this.performEvolution();
+            }
+            
+            if (skipBtn) {
+                skipBtn.onclick = () => this.skipEvolution();
             }
         }
 
@@ -920,6 +998,22 @@ class GameUI {
         const isMyTurn = gameState.current_player === this.currentPlayerName;
         document.getElementById('current-player-name').textContent = gameState.current_player || '未知';
         
+        // 显示/隐藏最后一轮警告横幅
+        const finalRoundBanner = document.getElementById('final-round-banner');
+        if (finalRoundBanner) {
+            if (gameState.final_round && !gameState.game_over) {
+                finalRoundBanner.style.display = 'block';
+                
+                // 第一次进入最后一轮时显示提示
+                if (!this.finalRoundNotified) {
+                    this.finalRoundNotified = true;
+                    showToast('⚠️ 有玩家已达到胜利分数！游戏将在本轮结束！', 'info');
+                }
+            } else {
+                finalRoundBanner.style.display = 'none';
+            }
+        }
+        
         // 控制按钮可用性（注意：已移除"结束回合"按钮，回合自动结束）
         const takeGemsBtn = document.getElementById('take-gems-btn');
         if (takeGemsBtn) {
@@ -933,6 +1027,16 @@ class GameUI {
             // 拿球后不需要放回球，继续进化/结束回合流程
             this.waitingForReturnBalls = false;
             this.checkAndShowEvolution();
+        }
+        
+        // 如果在进化阶段，恢复卡牌高亮状态
+        if (this.inEvolutionPhase && isMyTurn) {
+            if (this.selectedBaseCard) {
+                this.highlightCard(this.selectedBaseCard, 'evolution-base-selected');
+            }
+            if (this.selectedTargetCard) {
+                this.highlightCard(this.selectedTargetCard, 'evolution-target-selected');
+            }
         }
     }
 
@@ -949,10 +1053,15 @@ class GameUI {
             const response = await api.takeGems(this.currentRoomId, this.currentPlayerName, this.selectedBalls);
             if (response.success) {
                 showToast('成功拿取球！', 'success');
-                // 记录动作
-                const ballsText = this.selectedBalls.map(ball => {
+                // 记录动作 - 统计每种球的数量
+                const ballCounts = {};
+                this.selectedBalls.forEach(ball => {
+                    ballCounts[ball] = (ballCounts[ball] || 0) + 1;
+                });
+                const ballsText = Object.entries(ballCounts).map(([ball, count]) => {
                     const config = BALL_CONFIG[ball];
-                    return config?.emoji || ball;
+                    const emoji = config?.emoji || ball;
+                    return `${emoji}×${count}`;
                 }).join(' ');
                 this.currentActionSteps.push(`🎨 拿取球: ${ballsText}`);
                 
@@ -968,20 +1077,277 @@ class GameUI {
     }
 
     /**
+     * 处理进化阶段的卡牌点击
+     */
+    handleEvolutionCardClick(card, cardArea) {
+        console.log(`进化卡牌点击: ${card.name}, 区域: ${cardArea}, card_id: ${card.card_id}`);
+        
+        // 记录点击的卡牌
+        this.lastClickedCards.push({ card, area: cardArea });
+        
+        // 只保留最近的2次点击
+        if (this.lastClickedCards.length > 2) {
+            this.lastClickedCards.shift();
+        }
+        
+        console.log(`当前已点击卡牌数量: ${this.lastClickedCards.length}`, this.lastClickedCards);
+        
+        // 如果只点击了第一张卡（已拥有的）
+        if (this.lastClickedCards.length === 1 && cardArea === 'owned') {
+            console.log('第一张卡（已拥有）被选中');
+            // 清除之前的选择
+            this.selectedBaseCard = null;
+            this.selectedTargetCard = null;
+            
+            // 清除之前的高亮
+            this.clearEvolutionHighlight();
+            
+            // 设置并高亮这张卡（保存到selectedBaseCard以便恢复高亮）
+            this.selectedBaseCard = card;
+            this.highlightCard(card, 'evolution-base-selected');
+            showToast(`已选择: ${card.name}，请选择进化目标`, 'info');
+            return;
+        }
+        
+        // 必须是连续点击两张卡牌
+        if (this.lastClickedCards.length === 2) {
+            const first = this.lastClickedCards[0];
+            const second = this.lastClickedCards[1];
+            
+            // 第一张必须是已拥有的，第二张必须是场上/预定区的
+            if (first.area === 'owned' && (second.area === 'tableau' || second.area === 'reserved')) {
+                // 检查进化关系
+                const evolutionCheck = this.canEvolve(first.card, second.card);
+                
+                if (evolutionCheck.canEvolve) {
+                    this.selectedBaseCard = first.card;
+                    this.selectedTargetCard = second.card;
+                    
+                    // 清除之前的高亮
+                    this.clearEvolutionHighlight();
+                    
+                    // 高亮两张卡
+                    this.highlightCard(first.card, 'evolution-base-selected');
+                    this.highlightCard(second.card, 'evolution-target-selected');
+                    
+                    // 启用进化按钮
+                    const evolveBtn = document.getElementById('evolve-btn');
+                    if (evolveBtn) {
+                        evolveBtn.disabled = false;
+                        evolveBtn.classList.add('btn-highlight');
+                    }
+                    
+                    showToast(`✅ 可以进化: ${first.card.name} → ${second.card.name}`, 'success');
+                } else {
+                    // 根据不同的失败原因显示不同的错误信息
+                    let errorMessage = '❌ 这两张卡牌无法进化';
+                    if (evolutionCheck.reason === 'insufficient_resources') {
+                        errorMessage = '❌ 进化所需资源不够';
+                    } else if (evolutionCheck.reason === 'wrong_target') {
+                        errorMessage = '❌ 这两张卡牌无法进化';
+                    }
+                    
+                    showToast(errorMessage, 'error');
+                    
+                    // 重置选择
+                    this.selectedBaseCard = null;
+                    this.selectedTargetCard = null;
+                    this.lastClickedCards = [];
+                    this.clearEvolutionHighlight();
+                    
+                    // 重置进化按钮
+                    const evolveBtn = document.getElementById('evolve-btn');
+                    if (evolveBtn) {
+                        evolveBtn.disabled = true;
+                        evolveBtn.classList.remove('btn-highlight');
+                    }
+                }
+            } else {
+                // 点击顺序不对，重置
+                this.lastClickedCards = [];
+                this.selectedBaseCard = null;
+                this.selectedTargetCard = null;
+                this.clearEvolutionHighlight();
+            }
+        }
+    }
+    
+    /**
+     * 高亮指定卡牌
+     */
+    highlightCard(card, className) {
+        console.log(`尝试高亮卡牌: ${card.name}, card_id: ${card.card_id}, className: ${className}`);
+        
+        // 在所有卡牌中查找并高亮
+        const allCards = document.querySelectorAll('.mini-card, .pokemon-card, .rare-card, .legendary-card');
+        let foundCount = 0;
+        
+        allCards.forEach(cardElement => {
+            // 支持两种属性名：dataset.card 和 dataset.cardData
+            const cardData = cardElement.dataset.card || cardElement.dataset.cardData;
+            if (cardData) {
+                try {
+                    const cardObj = JSON.parse(cardData);
+                    if (cardObj.card_id === card.card_id) {
+                        cardElement.classList.add(className);
+                        foundCount++;
+                        console.log(`找到并高亮了卡牌: ${card.name}`, cardElement);
+                    }
+                } catch (e) {
+                    console.error('解析卡牌数据失败:', e);
+                }
+            }
+        });
+        
+        if (foundCount === 0) {
+            console.warn(`未找到卡牌 ${card.name} (card_id: ${card.card_id})`);
+        } else {
+            console.log(`成功高亮 ${foundCount} 个卡牌元素`);
+        }
+    }
+    
+    /**
+     * 清除所有进化相关的高亮
+     */
+    clearEvolutionHighlight() {
+        const allCards = document.querySelectorAll('.evolution-base-selected, .evolution-target-selected');
+        allCards.forEach(card => {
+            card.classList.remove('evolution-base-selected', 'evolution-target-selected');
+        });
+    }
+    
+    /**
+     * 检查两张卡是否可以进化
+     * @returns {Object} { canEvolve: boolean, reason: string }
+     */
+    canEvolve(baseCard, targetCard) {
+        // 基础卡必须有进化信息
+        if (!baseCard.evolution_target) {
+            return { canEvolve: false, reason: 'not_evolvable' };
+        }
+        
+        // 进化目标名称必须匹配
+        if (baseCard.evolution_target !== targetCard.name) {
+            return { canEvolve: false, reason: 'wrong_target' };
+        }
+        
+        // 检查玩家的永久折扣是否满足进化要求
+        const currentPlayer = this.currentGameState?.player_states?.[this.currentPlayerName];
+        if (!currentPlayer) {
+            return { canEvolve: false, reason: 'no_player' };
+        }
+        
+        const permanentBalls = currentPlayer.permanent_balls || {};
+        const requirement = baseCard.evolution_requirement || {};
+        
+        for (const [ballType, required] of Object.entries(requirement)) {
+            if ((permanentBalls[ballType] || 0) < required) {
+                return { canEvolve: false, reason: 'insufficient_resources' };
+            }
+        }
+        
+        return { canEvolve: true, reason: '' };
+    }
+    
+    /**
+     * 显示进化按钮区域
+     */
+    showEvolutionControls() {
+        console.log('显示进化控制按钮');
+        this.inEvolutionPhase = true;
+        this.lastClickedCards = [];
+        this.selectedBaseCard = null;
+        this.selectedTargetCard = null;
+        
+        // 重新渲染玩家信息，使卡牌可点击，按钮会自动显示（因为inEvolutionPhase=true）
+        this.updateGameUI(this.currentGameState);
+    }
+    
+    /**
+     * 隐藏进化按钮区域
+     */
+    hideEvolutionControls() {
+        this.inEvolutionPhase = false;
+        this.clearEvolutionHighlight();
+        
+        // 重新渲染以隐藏按钮
+        this.updateGameUI(this.currentGameState);
+    }
+    
+    /**
+     * 执行进化
+     */
+    async performEvolution() {
+        if (!this.selectedBaseCard || !this.selectedTargetCard) {
+            showToast('请先选择要进化的卡牌', 'error');
+            return;
+        }
+        
+        try {
+            const response = await api.evolveCard(this.currentRoomId, {
+                player_name: this.currentPlayerName,
+                card_id: this.selectedBaseCard.card_id
+            });
+            
+            if (response.success) {
+                // 记录进化动作到行动步骤中
+                this.currentActionSteps.push(`⚡ 进化: ${this.selectedBaseCard.name} → ${this.selectedTargetCard.name}`);
+                this.hasPerformedEvolution = true;
+                showToast(`进化成功！${this.selectedBaseCard.name} → ${this.selectedTargetCard.name}`, 'success');
+                
+                // 清除高亮和选择
+                this.clearEvolutionHighlight();
+                this.selectedBaseCard = null;
+                this.selectedTargetCard = null;
+                this.lastClickedCards = [];
+                
+                // 隐藏进化控制
+                this.hideEvolutionControls();
+                
+                // 结束回合
+                await this.autoEndAction();
+            } else {
+                showToast(response.error || '进化失败', 'error');
+            }
+        } catch (error) {
+            showToast('操作失败: ' + error.message, 'error');
+        }
+    }
+    
+    /**
+     * 跳过进化
+     */
+    async skipEvolution() {
+        this.clearEvolutionHighlight();
+        this.selectedBaseCard = null;
+        this.selectedTargetCard = null;
+        this.lastClickedCards = [];
+        this.hideEvolutionControls();
+        await this.autoEndAction();
+    }
+    
+    /**
      * 检查并自动触发进化或结束行动
      */
     checkAndShowEvolution() {
+        console.log('检查进化状态...');
         setTimeout(async () => {
             const currentPlayer = this.currentGameState?.player_states?.[this.currentPlayerName];
-            if (!currentPlayer) return;
+            if (!currentPlayer) {
+                console.log('未找到当前玩家状态');
+                return;
+            }
             
             // 检查是否可以进化
             const canEvolve = this.checkCanEvolve(currentPlayer);
+            console.log(`是否可以进化: ${canEvolve}, 是否已进化: ${this.hasPerformedEvolution}`);
             
             if (canEvolve && !this.hasPerformedEvolution) {
-                // 自动弹出进化选择界面
-                await this.executeEvolution();
+                console.log('可以进化，显示进化控制按钮');
+                // 显示进化控制按钮
+                this.showEvolutionControls();
             } else {
+                console.log('不能进化或已进化，自动结束行动');
                 // 不能进化或已进化，自动结束行动
                 await this.autoEndAction();
             }
@@ -1053,113 +1419,6 @@ class GameUI {
     }
     
     /**
-     * 执行进化
-     */
-    async executeEvolution() {
-        const currentPlayer = this.currentGameState?.player_states?.[this.currentPlayerName];
-        if (!currentPlayer) {
-            await this.autoEndAction();
-            return;
-        }
-        
-        const displayCards = currentPlayer.display_area || [];
-        const permanentBalls = currentPlayer.permanent_balls || {};
-        
-        // 找出所有可以进化的卡牌
-        const evolvableCards = displayCards.filter(card => {
-            if (!card.evolution_target || card.level >= 3) return false;
-            
-            const requiredBalls = card.evolution_requirement || {};
-            for (const [ballType, required] of Object.entries(requiredBalls)) {
-                if ((permanentBalls[ballType] || 0) < required) return false;
-            }
-            return true;
-        });
-        
-        if (evolvableCards.length === 0) {
-            // 没有可进化的卡牌，自动结束行动
-            await this.autoEndAction();
-            return;
-        }
-        
-        // 显示选择框（包含跳过选项）
-        const cardId = await this.showEvolutionChoice(evolvableCards);
-        
-        if (!cardId) {
-            // 用户选择跳过进化，自动结束行动
-            await this.autoEndAction();
-            return;
-        }
-        
-        const cardToEvolve = evolvableCards.find(c => c.card_id === cardId);
-        
-        // 调用进化API（使用唯一card_id而不是name）
-        try {
-            const response = await api.evolveCard(this.currentRoomId, {
-                player_name: this.currentPlayerName,
-                card_id: cardToEvolve.card_id
-            });
-            
-            if (response.success) {
-                // 显示醒目的进化成功提示（进化是独立阶段，不计入回合动作）
-                this.showEvolutionNotification(cardToEvolve.name, cardToEvolve.evolution_target);
-                this.hasPerformedEvolution = true;
-            } else {
-                showToast(response.error || '进化失败', 'error');
-            }
-        } catch (error) {
-            showToast('操作失败: ' + error.message, 'error');
-        }
-        
-        // 进化完成后，自动结束行动
-        await this.autoEndAction();
-    }
-    
-    /**
-     * 显示进化选择框
-     */
-    async showEvolutionChoice(cards) {
-        return new Promise((resolve) => {
-            const modal = document.createElement('div');
-            modal.className = 'card-action-modal';
-            
-            // 使用card_id作为唯一标识，但显示name给用户看
-            const cardsHtml = cards.map(card => `
-                <div class="evolution-option" data-card-id="${card.card_id}">
-                    ${card.name} → ${card.evolution_target}
-                </div>
-            `).join('');
-            
-            modal.innerHTML = `
-                <div class="modal-content">
-                    <h3>🔄 可以进化卡牌</h3>
-                    <p style="margin: 10px 0; color: #bbb;">选择一张卡牌进化，或跳过进化直接结束行动</p>
-                    <div class="evolution-options">
-                        ${cardsHtml}
-                    </div>
-                    <button id="skip-evolution-btn" class="btn btn-secondary">⏭️ 跳过进化</button>
-                </div>
-            `;
-            
-            document.body.appendChild(modal);
-            
-            // 绑定事件
-            modal.querySelectorAll('.evolution-option').forEach(option => {
-                option.addEventListener('click', () => {
-                    const cardId = parseInt(option.dataset.cardId);
-                    document.body.removeChild(modal);
-                    resolve(cardId);
-                });
-            });
-            
-            document.getElementById('skip-evolution-btn').addEventListener('click', () => {
-                document.body.removeChild(modal);
-                resolve(null);  // 返回null表示跳过进化
-            });
-        });
-    }
-
-    /**
      * 自动结束行动（在完成动作和进化检查后调用）
      */
     async autoEndAction() {
@@ -1173,74 +1432,13 @@ class GameUI {
                 // 重置行动状态
                 this.hasPerformedMainAction = false;
                 this.hasPerformedEvolution = false;
+                this.hideEvolutionControls();  // 隐藏进化按钮
             } else {
                 showToast(response.error || '操作失败', 'error');
             }
         } catch (error) {
             showToast('操作失败: ' + error.message, 'error');
         }
-    }
-    
-    /**
-     * 显示进化成功通知
-     */
-    showEvolutionNotification(fromCard, toCard) {
-        // 移除旧的通知（如果存在）
-        const oldNotification = document.getElementById('game-notification');
-        if (oldNotification) {
-            oldNotification.remove();
-        }
-        
-        // 创建全屏通知
-        const notification = document.createElement('div');
-        notification.id = 'game-notification'; // 固定ID，用于覆盖
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
-            color: white;
-            padding: 40px 60px;
-            border-radius: 20px;
-            font-size: 1.8em;
-            font-weight: bold;
-            text-align: center;
-            z-index: 10001;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-            animation: slideInFromTop 2.5s ease-in-out;
-        `;
-        notification.innerHTML = `
-            <div style="font-size: 1.5em; margin-bottom: 10px;">⚡</div>
-            <div>进化成功！</div>
-            <div style="font-size: 0.8em; margin-top: 15px; color: #ffeaa7;">
-                ${fromCard} → ${toCard}
-            </div>
-        `;
-        
-        // 添加动画样式
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes slideInFromTop {
-                0% { opacity: 0; transform: translateX(-50%) translateY(-50px); }
-                20% { opacity: 1; transform: translateX(-50%) translateY(0); }
-                80% { opacity: 1; transform: translateX(-50%) translateY(0); }
-                100% { opacity: 0; transform: translateX(-50%) translateY(-50px); }
-            }
-        `;
-        document.head.appendChild(style);
-        
-        document.body.appendChild(notification);
-        
-        // 2.5秒后自动移除
-        setTimeout(() => {
-            if (notification.parentNode) {
-                document.body.removeChild(notification);
-            }
-            if (style.parentNode) {
-                document.head.removeChild(style);
-            }
-        }, 2500);
     }
     
     /**
@@ -1411,6 +1609,64 @@ class GameUI {
     async endTurn() {
         // 此方法已废弃，保留仅为兼容性
         await this.autoEndAction();
+    }
+    
+    /**
+     * 显示最终排名
+     */
+    showFinalRankings(winner, rankings) {
+        // 移除旧的通知（如果存在）
+        const oldNotification = document.getElementById('game-notification');
+        if (oldNotification) {
+            oldNotification.remove();
+        }
+        
+        // 构建排名HTML
+        let rankingsHTML = '';
+        if (rankings && rankings.length > 0) {
+            rankingsHTML = rankings.map(item => {
+                const medal = {1: "🥇", 2: "🥈", 3: "🥉"}[item.rank] || `${item.rank}️⃣`;
+                return `<div style="margin: 10px 0; font-size: 0.8em; text-align: left;">
+                    ${medal} 第${item.rank}名：${item.player_name}（玩家${item.player_number}）- ${item.victory_points}分
+                </div>`;
+            }).join('');
+        } else {
+            rankingsHTML = '<div style="margin: 10px 0; font-size: 0.8em;">排名信息不可用</div>';
+        }
+        
+        // 创建全屏通知
+        const notification = document.createElement('div');
+        notification.id = 'game-notification';
+        notification.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 50px 70px;
+            border-radius: 25px;
+            font-size: 2em;
+            font-weight: bold;
+            text-align: center;
+            z-index: 10001;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+            max-width: 700px;
+        `;
+        notification.innerHTML = `
+            <div style="font-size: 2em; margin-bottom: 20px;">🎉</div>
+            <div style="margin-bottom: 30px;">游戏结束！</div>
+            <div style="font-size: 1.2em; margin-bottom: 20px;">🏆 胜者：${winner || '未知'}</div>
+            <div style="background: rgba(0, 0, 0, 0.3); padding: 25px; border-radius: 15px; margin-top: 20px;">
+                <div style="font-size: 0.7em; margin-bottom: 15px; color: #ffeaa7;">最终排名：</div>
+                ${rankingsHTML}
+            </div>
+            <div style="margin-top: 30px;">
+                <button onclick="gameUI.stopPolling(); switchScreen('room-screen'); startRoomPolling(); document.getElementById('game-notification').remove();" class="btn btn-primary" style="font-size: 0.6em; padding: 15px 40px;">返回房间</button>
+            </div>
+        `;
+        
+        document.body.appendChild(notification);
     }
 
     /**
@@ -1713,7 +1969,8 @@ class GameUI {
                     if (typeof clearGameSession === 'function') {
                         clearGameSession();
                     }
-                    showToast(`游戏结束！胜者: ${response.winner || '未知'}`, 'success');
+                    // 显示排名信息
+                    this.showFinalRankings(response.winner, response.rankings);
                 }
             }
         } catch (error) {

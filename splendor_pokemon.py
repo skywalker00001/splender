@@ -559,13 +559,14 @@ class SplendorPokemonGame:
             self.ball_pool[BallType.MASTER] -= 1
             player.balls[BallType.MASTER] += 1
         
-        # 从场上移除并补充
+        # 从场上移除并补充（在原位置补充新牌）
         for level, cards in self.tableau.items():
             if card in cards:
+                card_index = cards.index(card)  # 记录原位置
                 cards.remove(card)
                 deck = [self.deck_lv1, self.deck_lv2, self.deck_lv3][level-1]
                 if deck:
-                    cards.append(deck.pop())
+                    cards.insert(card_index, deck.pop())  # 在原位置插入
                 break
         
         # 检查球数上限（预购获得大师球后可能超过10个）
@@ -582,13 +583,14 @@ class SplendorPokemonGame:
         if not player.buy_card(card, return_balls):
             return False
         
-        # 从场上或手牌移除
+        # 从场上或手牌移除（在原位置补充新牌）
         for level, cards in self.tableau.items():
             if card in cards:
+                card_index = cards.index(card)  # 记录原位置
                 cards.remove(card)
                 deck = [self.deck_lv1, self.deck_lv2, self.deck_lv3][level-1]
                 if deck:
-                    cards.append(deck.pop())
+                    cards.insert(card_index, deck.pop())  # 在原位置插入
                 break
         
         if card in player.reserved_cards:
@@ -705,11 +707,38 @@ class SplendorPokemonGame:
         # 设置winner为第一名
         self.winner = players_with_index[0][1]
         
+        # 保存排名数据供get_final_rankings使用
+        self.final_rankings = players_with_index
+        
         # 打印排名
         print("\n=== 最终排名 ===")
         for rank, (original_idx, player) in enumerate(players_with_index, 1):
             medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"{rank}️⃣")
             print(f"{medal} 第{rank}名：{player.name}（玩家{original_idx + 1}），{player.victory_points}分")
+    
+    def get_final_rankings(self):
+        """获取最终排名列表
+        
+        返回格式：
+        [
+            {"rank": 1, "player_name": "...", "player_number": 1, "victory_points": ...},
+            ...
+        ]
+        """
+        if not hasattr(self, 'final_rankings') or not self.final_rankings:
+            # 如果没有计算过排名，立即计算
+            self._calculate_final_rankings()
+        
+        rankings = []
+        for rank, (original_idx, player) in enumerate(self.final_rankings, 1):
+            rankings.append({
+                "rank": rank,
+                "player_name": player.name,
+                "player_number": original_idx + 1,
+                "victory_points": player.victory_points
+            })
+        
+        return rankings
     
     def next_player(self):
         """切换到下一个玩家"""

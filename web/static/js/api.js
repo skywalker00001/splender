@@ -45,6 +45,40 @@ class SplendorAPI {
         return this.request('/health');
     }
 
+    // ============ 用户管理API ============
+    
+    /**
+     * 用户登录
+     */
+    async login(username, forceReconnect = false) {
+        return this.request('/login', {
+            method: 'POST',
+            body: JSON.stringify({ 
+                username, 
+                force_reconnect: forceReconnect 
+            })
+        });
+    }
+
+    /**
+     * 用户登出
+     */
+    async logout(username) {
+        return this.request('/logout', {
+            method: 'POST',
+            body: JSON.stringify({ username })
+        });
+    }
+
+    /**
+     * 获取用户状态
+     */
+    async getUserStatus(username) {
+        return this.request(`/users/${username}/status`);
+    }
+
+    // ============ 房间管理API ============
+
     /**
      * 创建房间
      */
@@ -232,6 +266,65 @@ class SplendorAPI {
         return this.request(`/rooms/${roomId}/end_turn`, {
             method: 'POST',
             body: JSON.stringify({ player_name: playerName })
+        });
+    }
+
+    // ============ 调试API ============
+
+    /**
+     * 调整玩家持有球（调试用）
+     */
+    async debugAdjustBalls(roomId, playerName, ballType, delta) {
+        return this.request(`/rooms/${roomId}/debug/adjust_balls`, {
+            method: 'POST',
+            body: JSON.stringify({
+                player_name: playerName,
+                ball_type: ballType,
+                delta: delta
+            })
+        });
+    }
+
+    /**
+     * 调整玩家永久折扣（调试用）
+     */
+    async debugAdjustPermanentBalls(roomId, playerName, ballType, delta) {
+        return this.request(`/rooms/${roomId}/debug/adjust_permanent_balls`, {
+            method: 'POST',
+            body: JSON.stringify({
+                player_name: playerName,
+                ball_type: ballType,
+                delta: delta
+            })
+        });
+    }
+
+    /**
+     * 从场上/特殊区添加卡牌（调试用）
+     */
+    async debugAddCard(roomId, playerName, cardId, cardType, source) {
+        return this.request(`/rooms/${roomId}/debug/add_card`, {
+            method: 'POST',
+            body: JSON.stringify({
+                player_name: playerName,
+                card_id: cardId,
+                card_type: cardType,  // 'owned' or 'reserved'
+                source: source  // 'tableau'
+            })
+        });
+    }
+
+    /**
+     * 从牌堆添加卡牌（调试用）
+     */
+    async debugAddCardFromDeck(roomId, playerName, level, cardType) {
+        return this.request(`/rooms/${roomId}/debug/add_card_from_deck`, {
+            method: 'POST',
+            body: JSON.stringify({
+                player_name: playerName,
+                level: level,
+                card_type: cardType  // 'owned' or 'reserved'
+            })
         });
     }
 }
