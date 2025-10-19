@@ -16,16 +16,16 @@ body {
     background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
     color: #ecf0f1;
     min-height: 100vh;
-    font-size: 18px; /* 增大基础字体 */
+    font-size: 16px; /* 调整为适中的基础字体 */
     line-height: 1.6;
 }
 
 .container {
-    max-width: 1800px; /* 进一步增大容器宽度 */
-    width: 95%; /* 占据屏幕95%宽度 */
+    max-width: 1400px; /* 适中的容器宽度 */
+    width: 92%; /* 占据屏幕92%宽度 */
     margin: 0 auto;
-    padding: 60px 80px; /* 大幅增大padding，上下60px，左右80px */
-    min-height: 95vh; /* 占据95%屏幕高度 */
+    padding: 40px 50px; /* 适中的padding */
+    min-height: 90vh; /* 占据90%屏幕高度 */
 }
 
 /* ========================================
@@ -1205,6 +1205,21 @@ select {
 }
 
 /* ========================================
+   响应式设计 - 大屏幕优化（如Mac Retina）
+   ======================================== */
+
+@media (min-width: 1600px) {
+    body {
+        font-size: 17px; /* 大屏幕稍微增大字体 */
+    }
+    
+    .container {
+        max-width: 1500px;
+        padding: 50px 60px;
+    }
+}
+
+/* ========================================
    响应式设计 - 平板
    ======================================== */
 
@@ -1496,38 +1511,17 @@ select {
         user-select: none;
     }
     
-    /* 默认隐藏卡牌详情，点击展开 */
+    /* 移动端也始终显示所有玩家的卡牌（游戏关键信息） */
     .player-card .player-cards,
     .player-card .player-reserved {
-        display: none;
-    }
-    
-    .player-card.expanded .player-cards,
-    .player-card.expanded .player-reserved {
-    display: block;
-    }
-    
-    /* 自己的卡牌始终显示 */
-    .player-card.my-player .player-cards,
-    .player-card.my-player .player-reserved {
-        display: block !important;
-    }
-    
-    .player-card h3::after {
-        content: " 📋";
-        font-size: 0.85em;
-        opacity: 0.8;
-        color: #f1c40f;
-    }
-
-    .player-card.expanded h3::after {
-        content: " 📖";
+        display: block; /* 始终显示 */
     }
     
     .player-card.my-player h3::after {
         content: " 👤";
         opacity: 1;
-}
+        color: #f1c40f;
+    }
 
 .stat-item {
         font-size: 0.9em;
