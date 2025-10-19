@@ -137,16 +137,15 @@ async function initApp() {
             // 清除登录结果（只用一次）
             localStorage.removeItem('splendor_login_result');
             
-            // 如果有活跃游戏，保存并显示"重新加入游戏"按钮
+            // 只有游戏进行中才显示"重新加入游戏"按钮（房间等待状态不重连）
             if (loginResult.has_active_game && loginResult.active_game) {
-                userActiveGame = loginResult.active_game;
-                showRejoinGameButton(loginResult.active_game);
-                
+                // 只处理游戏进行中的情况
                 if (loginResult.active_game.status === 'playing') {
+                    userActiveGame = loginResult.active_game;
+                    showRejoinGameButton(loginResult.active_game);
                     showToast('检测到未完成的游戏，点击"重新加入游戏"继续', 'info');
-                } else {
-                    showToast('检测到未完成的房间，点击"重新加入游戏"返回', 'info');
                 }
+                // waiting 状态不显示重连按钮，用户需要自己创建/加入房间
             }
         } catch (e) {
             console.error('解析登录结果失败:', e);
@@ -206,23 +205,54 @@ async function handleRejoinGame() {
         return;
     }
     
+    // 只处理游戏进行中的情况
+    if (userActiveGame.status !== 'playing') {
+        showToast('游戏未在进行中', 'error');
+        hideRejoinGameButton();
+        userActiveGame = null;
+        return;
+    }
+    
     currentRoom = userActiveGame.room_id;
     isCreator = userActiveGame.is_creator;
     
-    if (userActiveGame.status === 'playing') {
-        // 游戏进行中，直接进入游戏界面
-        switchScreen('game-screen');
-        gameUI.startPolling(currentRoom, playerName);
-        showToast('已重新加入游戏', 'success');
-    } else {
-        // 游戏在等待状态，进入房间界面
-        showRoomScreen();
-        startRoomPolling();
-        showToast('已返回房间', 'success');
-    }
+    // 游戏进行中，直接进入游戏界面
+    switchScreen('game-screen');
+    gameUI.startPolling(currentRoom, playerName);
+    showToast('已重新加入游戏', 'success');
     
     hideRejoinGameButton();
     userActiveGame = null;
+}
+
+/**
+ * 从游戏界面返回房间
+ */
+async function handleReturnToRoom() {
+    try {
+        // 通知后端玩家离开游戏（会触发保存游戏历史）
+        await api.leaveRoom(currentRoom, playerName);
+    } catch (error) {
+        console.error('离开游戏失败:', error);
+    }
+    
+    // 停止游戏轮询
+    gameUI.stopPolling();
+    
+    // 清除自动跳转标志，防止重新自动进入游戏
+    shouldAutoJoinGame = false;
+    
+    // 切换到房间界面
+    switchScreen('room-screen');
+    
+    // 开始房间轮询
+    startRoomPolling();
+    
+    // 移除游戏结束通知
+    const notification = document.getElementById('game-notification');
+    if (notification) {
+        notification.remove();
+    }
 }
 
 /**
@@ -442,6 +472,10 @@ async function handleCreateRoom() {
         saveGameSession(currentRoom, playerName);
         
         showToast('房间创建成功！', 'success');
+        
+        // 设置自动跳转标志，当游戏开始时自动进入游戏界面
+        shouldAutoJoinGame = true;
+        
         showRoomScreen();
         startRoomPolling();
     } catch (error) {
@@ -619,6 +653,10 @@ window.joinRoom = async function(roomId) {
         saveGameSession(currentRoom, playerName);
         
         showToast('成功加入房间！', 'success');
+        
+        // 设置自动跳转标志，当游戏开始时自动进入游戏界面
+        shouldAutoJoinGame = true;
+        
         showRoomScreen();
         startRoomPolling();
     } catch (error) {
@@ -761,11 +799,12 @@ async function updateRoomInfo() {
             }
         }
         
-        // 如果游戏已经开始，切换到游戏界面
-        if (state.status === 'playing') {
+        // 如果游戏已经开始，且应该自动跳转，切换到游戏界面
+        if (state.status === 'playing' && shouldAutoJoinGame) {
             console.log('🎮 检测到游戏已开始，准备跳转到游戏界面');
             stopRoomPolling();
             isStartingGame = false;  // 重置标志
+            shouldAutoJoinGame = false;  // 重置自动跳转标志
             switchScreen('game-screen');
             gameUI.startPolling(currentRoom, playerName);
             showToast(`游戏开始！当前玩家: ${state.current_player}`, 'success');
@@ -796,6 +835,8 @@ function handleCopyRoomId() {
 
 // 防止重复点击的标志
 let isStartingGame = false;
+// 是否应该自动跳转到游戏界面（只有在特定情况下才自动跳转）
+let shouldAutoJoinGame = false;
 
 /**
  * 开始游戏
@@ -837,6 +878,9 @@ async function handleStartGame() {
         const result = await api.startGame(currentRoom, playerName);
         console.log('✅ 开始游戏成功:', result);
         showToast('游戏开始！正在加载...', 'success');
+        
+        // 设置自动跳转标志，允许 updateRoomInfo 自动跳转到游戏界面
+        shouldAutoJoinGame = true;
         
         // 等待轮询检测到游戏状态变化并自动跳转
         // updateRoomInfo 会检测 status === 'playing' 并自动跳转
@@ -941,6 +985,9 @@ async function handleLeaveRoom() {
         // 清除游戏会话
         clearGameSession();
         
+        // 清除自动跳转标志
+        shouldAutoJoinGame = false;
+        
         stopRoomPolling();
         switchScreen('lobby-screen');
         resetGame();
@@ -999,6 +1046,9 @@ function handleQuitGame() {
     if (confirm('确定要退出游戏吗？')) {
         // 清除游戏会话
         clearGameSession();
+        
+        // 清除自动跳转标志
+        shouldAutoJoinGame = false;
         
         gameUI.stopPolling();
         switchScreen('lobby-screen');

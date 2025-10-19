@@ -596,25 +596,30 @@ class GameUI {
     /**
      * 购买卡牌
      */
-    buyCard(card) {
-        // 使用唯一card_id而不是name（避免重名卡牌混淆）
-        api.buyCard(this.currentRoomId, this.currentPlayerName, { card_id: card.card_id })
-            .then(response => {
-                if (response.success) {
-                    showToast('购买成功！', 'success');
-                    // 记录动作
-                    this.currentActionSteps.push(`💰 购买卡牌: ${card.name} (Lv${card.level}, ${card.victory_points}VP)`);
-                    
-                    this.selectedCard = null;
-                    this.hasPerformedMainAction = true;
+    async buyCard(card) {
+        try {
+            // 使用唯一card_id而不是name（避免重名卡牌混淆）
+            const response = await api.buyCard(this.currentRoomId, this.currentPlayerName, { card_id: card.card_id });
+            if (response.success) {
+                showToast('购买成功！', 'success');
+                // 记录动作
+                this.currentActionSteps.push(`💰 购买卡牌: ${card.name} (Lv${card.level}, ${card.victory_points}VP)`);
+                
+                this.selectedCard = null;
+                this.hasPerformedMainAction = true;
+                
+                // 立即刷新游戏状态，确保新购买的卡牌被包含在进化检查中
+                await this.pollGameState();
+                // 等待状态更新后再检查进化
+                setTimeout(() => {
                     this.checkAndShowEvolution();
-                } else {
-                    showToast(response.error || '购买失败', 'error');
-                }
-            })
-            .catch(error => {
-                showToast('操作失败: ' + error.message, 'error');
-            });
+                }, 200);
+            } else {
+                showToast(response.error || '购买失败', 'error');
+            }
+        } catch (error) {
+            showToast('操作失败: ' + error.message, 'error');
+        }
     }
     
     /**
@@ -1312,29 +1317,27 @@ class GameUI {
     /**
      * 检查并自动触发进化或结束行动
      */
-    checkAndShowEvolution() {
+    async checkAndShowEvolution() {
         console.log('检查进化状态...');
-        setTimeout(async () => {
-            const currentPlayer = this.currentGameState?.player_states?.[this.currentPlayerName];
-            if (!currentPlayer) {
-                console.log('未找到当前玩家状态');
-                return;
-            }
-            
-            // 检查是否可以进化
-            const canEvolve = this.checkCanEvolve(currentPlayer);
-            console.log(`是否可以进化: ${canEvolve}, 是否已进化: ${this.hasPerformedEvolution}`);
-            
-            if (canEvolve && !this.hasPerformedEvolution) {
-                console.log('可以进化，显示进化控制按钮');
-                // 显示进化控制按钮
-                this.showEvolutionControls();
-            } else {
-                console.log('不能进化或已进化，自动结束行动');
-                // 不能进化或已进化，自动结束行动
-                await this.autoEndAction();
-            }
-        }, 1000);  // 等待1秒让游戏状态更新
+        const currentPlayer = this.currentGameState?.player_states?.[this.currentPlayerName];
+        if (!currentPlayer) {
+            console.log('未找到当前玩家状态');
+            return;
+        }
+        
+        // 检查是否可以进化
+        const canEvolve = this.checkCanEvolve(currentPlayer);
+        console.log(`是否可以进化: ${canEvolve}, 是否已进化: ${this.hasPerformedEvolution}`);
+        
+        if (canEvolve && !this.hasPerformedEvolution) {
+            console.log('可以进化，显示进化控制按钮');
+            // 显示进化控制按钮
+            this.showEvolutionControls();
+        } else {
+            console.log('不能进化或已进化，自动结束行动');
+            // 不能进化或已进化，自动结束行动
+            await this.autoEndAction();
+        }
     }
     
     /**
@@ -1437,8 +1440,8 @@ class GameUI {
         if (gameState && gameState.player_states && gameState.player_states[playerName]) {
             const lastAction = gameState.player_states[playerName].last_action;
             if (lastAction && lastAction.trim() !== '') {
-                // 将last_action按"→"分割成多个步骤
-                const steps = lastAction.split(' → ').filter(s => s.trim() !== '');
+                // 将last_action按"║"分割成多个步骤（使用║避免与进化内部的→冲突）
+                const steps = lastAction.split(' ║ ').filter(s => s.trim() !== '');
                 actionsHTML = steps.map(step => 
                     `<div style="margin: 8px 0; font-size: 0.65em; text-align: left;">${step}</div>`
                 ).join('');
@@ -1645,7 +1648,7 @@ class GameUI {
                 ${rankingsHTML}
             </div>
             <div style="margin-top: 30px;">
-                <button onclick="gameUI.stopPolling(); switchScreen('room-screen'); startRoomPolling(); document.getElementById('game-notification').remove();" class="btn btn-primary" style="font-size: 0.6em; padding: 15px 40px;">返回房间</button>
+                <button onclick="handleReturnToRoom();" class="btn btn-primary" style="font-size: 0.6em; padding: 15px 40px;">返回房间</button>
             </div>
         `;
         

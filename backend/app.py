@@ -412,24 +412,26 @@ def login():
         
         user = users[username]
         
-        # 检查用户是否有进行中的游戏
+        # 检查用户是否有进行中的游戏（只返回playing状态，waiting状态不算活跃游戏）
         current_room_status = None
         if user.current_room_id and user.current_room_id in game_rooms:
             room = game_rooms[user.current_room_id]
             # 检查房间状态和用户是否还在房间中
             if username in room.players and room.status != "finished":
-                current_room_status = {
-                    "room_id": room.room_id,
-                    "status": room.status,
-                    "players": room.players,
-                    "max_players": room.max_players,
-                    "victory_points": room.victory_points,
-                    "is_creator": (room.creator_name == username)
-                }
                 # 更新用户状态
                 if room.status == "playing":
                     user.status = UserStatus.IN_GAME
+                    # 只有游戏进行中才返回活跃游戏信息
+                    current_room_status = {
+                        "room_id": room.room_id,
+                        "status": room.status,
+                        "players": room.players,
+                        "max_players": room.max_players,
+                        "victory_points": room.victory_points,
+                        "is_creator": (room.creator_name == username)
+                    }
                 else:
+                    # waiting状态不算活跃游戏，不返回
                     user.status = UserStatus.IN_ROOM
             else:
                 # 房间不存在或已结束，清除用户的房间记录
@@ -805,6 +807,18 @@ def leave_room(room_id):
         
         # 游戏进行中或已结束：允许退出，清除玩家的房间映射
         else:
+            # 如果游戏还在进行中，保存当前进度作为"未完成"的历史记录
+            if room.status == "playing" and room.history and room.game and not room.game.game_over:
+                try:
+                    # 保存未完成的游戏历史（不包含最终排名）
+                    # 先记录当前状态
+                    room.history.end_time = datetime.now().isoformat()
+                    room.history.winner = "游戏未完成"
+                    filepath = room.history.save_to_file()
+                    print(f"💾 游戏未完成，保存进度到: {filepath}")
+                except Exception as e:
+                    print(f"⚠️ 保存游戏进度失败: {e}")
+            
             # 清除玩家映射和用户的当前房间
             if player_name in player_to_room and player_to_room[player_name] == room_id:
                 del player_to_room[player_name]
@@ -1450,7 +1464,8 @@ def evolve_card(room_id):
             
             # 记录玩家行动描述 - 注意：进化是行动之外的额外步骤，这里记录但前端会在进化通知中单独展示
             # 这个记录主要用于后续回顾
-            player.last_action += f" → ⚡ 进化: {base_card.name} → {target_card.name}"
+            # 使用 ║ 作为步骤分隔符，避免与进化内部的 → 冲突
+            player.last_action += f" ║ ⚡ 进化: {base_card.name} → {target_card.name}"
             
             room.last_activity = datetime.now()
             
@@ -1502,7 +1517,8 @@ def return_balls(room_id):
             ball_desc = " ".join([f"{ball_emoji_map.get(ball.value, ball.value)}×{amount}" 
                                  for ball, amount in balls_dict.items() if amount > 0])
             player = room.game.get_current_player()
-            player.last_action += f" → ↩️ 放回球: {ball_desc}"
+            # 使用 ║ 作为步骤分隔符
+            player.last_action += f" ║ ↩️ 放回球: {ball_desc}"
             
             room.last_activity = datetime.now()
             return jsonify({
