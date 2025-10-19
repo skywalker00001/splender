@@ -1,6 +1,7 @@
 // 登录界面逻辑
 class LoginManager {
     constructor() {
+        this.api = new SplendorAPI();
         this.init();
     }
     
@@ -24,13 +25,6 @@ class LoginManager {
         
         // 自动聚焦到输入框
         usernameInput.focus();
-        
-        // 检查是否已有sessionStorage中的用户名（用于自动填充）
-        const savedUsername = sessionStorage.getItem('currentPlayerName');
-        if (savedUsername) {
-            usernameInput.value = savedUsername;
-            usernameInput.select();
-        }
     }
     
     async handleLogin() {
@@ -59,76 +53,41 @@ class LoginManager {
         loginBtn.textContent = '🔄 登录中...';
         
         try {
-            // 调用登录API
-            const response = await fetch(`${API_BASE_URL}/login`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ username })
-            });
+            // 调用登录API（允许重连，这样用户关闭页面后可以重新登录）
+            const result = await this.api.login(username, true);  // force_reconnect = true
             
-            const data = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(data.error || '登录失败');
+            if (!result.success) {
+                throw new Error(result.error || '登录失败');
             }
             
-            // 保存用户信息到sessionStorage（每个标签页独立，支持多开）
-            sessionStorage.setItem('currentPlayerName', username);
-            sessionStorage.setItem('userData', JSON.stringify(data.user));
+            // 保存用户名到localStorage
+            localStorage.setItem('splendor_username', username);
+            
+            // 保存登录结果
+            localStorage.setItem('splendor_login_result', JSON.stringify({
+                user: result.user,
+                has_active_game: result.has_active_game,
+                active_game: result.active_game,
+                timestamp: Date.now()
+            }));
             
             // 显示欢迎消息
-            this.showSuccess(data.message);
+            this.showSuccess(result.message || '登录成功');
             
-            // 检查是否有进行中的游戏
-            if (data.has_active_game && data.active_game) {
-                // 有进行中的游戏，强制重连
-                await this.reconnectToGame(data.active_game);
-            } else {
-                // 没有进行中的游戏，跳转到大厅
-                setTimeout(() => {
-                    window.location.href = '/main.html';
-                }, 500);
-            }
+            // 等待一小段时间让用户看到提示
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // 跳转到主页
+            window.location.href = '/main.html';
             
         } catch (error) {
             console.error('登录失败:', error);
-            this.showError(error.message || '登录失败，请重试');
+            
+            // 显示错误
+            const errorMsg = error.message || '登录失败，请重试';
+            this.showError(errorMsg);
             loginBtn.disabled = false;
             loginBtn.textContent = '🚀 进入游戏';
-        }
-    }
-    
-    async reconnectToGame(activeGame) {
-        console.log('检测到进行中的游戏，准备重连:', activeGame);
-        
-        // 显示重连提示
-        const overlay = document.getElementById('reconnectingOverlay');
-        overlay.style.display = 'flex';
-        
-        try {
-            // 等待一小段时间让用户看到提示
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            // 根据游戏状态跳转
-            if (activeGame.status === 'waiting') {
-                // 游戏还在等待状态，跳转到房间
-                window.location.href = `/room.html?room_id=${activeGame.room_id}`;
-            } else if (activeGame.status === 'playing') {
-                // 游戏正在进行，跳转到游戏界面
-                window.location.href = `/game.html?room_id=${activeGame.room_id}`;
-            } else {
-                // 其他状态，跳转到大厅
-                window.location.href = '/main.html';
-            }
-        } catch (error) {
-            console.error('重连失败:', error);
-            overlay.style.display = 'none';
-            this.showError('重连失败，正在跳转到大厅...');
-            setTimeout(() => {
-                window.location.href = '/main.html';
-            }, 1500);
         }
     }
     
@@ -153,4 +112,3 @@ class LoginManager {
 document.addEventListener('DOMContentLoaded', () => {
     new LoginManager();
 });
-

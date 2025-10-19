@@ -2,23 +2,6 @@
  * 游戏状态管理和UI渲染 - V2版本（适配新规则）
  */
 
-// 检查用户是否已登录
-function checkLoginStatus() {
-    const currentPlayerName = sessionStorage.getItem('currentPlayerName');
-    if (!currentPlayerName) {
-        // 未登录，跳转到登录页面
-        window.location.href = '/login.html';
-        return false;
-    }
-    return true;
-}
-
-// 页面加载时检查登录状态
-if (!checkLoginStatus()) {
-    // 如果未登录，停止执行后续代码
-    throw new Error('Please login first');
-}
-
 // 球类型配置（BallType）- 5种颜色球 + 大师球
 const BALL_CONFIG = {
     '黑': { emoji: '⚫', class: 'ball-black', name: '黑球' },

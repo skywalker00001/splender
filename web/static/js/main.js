@@ -2,23 +2,6 @@
  * 主应用逻辑
  */
 
-// 检查用户是否已登录
-function checkLoginStatus() {
-    const currentPlayerName = sessionStorage.getItem('currentPlayerName');
-    if (!currentPlayerName) {
-        // 未登录，跳转到登录页面
-        window.location.href = '/login.html';
-        return false;
-    }
-    return true;
-}
-
-// 页面加载时检查登录状态
-if (!checkLoginStatus()) {
-    // 如果未登录，停止执行后续代码
-    throw new Error('Please login first');
-}
-
 // 全局变量
 let currentRoom = null;
 let playerName = null;
@@ -117,10 +100,27 @@ function showToast(message, type = 'info') {
  * 初始化应用
  */
 async function initApp() {
+    // 检查localStorage中是否有保存的用户名
+    const savedUsername = localStorage.getItem('splendor_username');
+    
+    if (!savedUsername) {
+        // 未登录，跳转到登录页面
+        window.location.href = '/login.html';
+        return;
+    }
+    
+    // 设置玩家名
+    playerName = savedUsername;
+    
+    // 更新UI显示用户名
+    const userNameElement = document.getElementById('current-user-name');
+    if (userNameElement) {
+        userNameElement.textContent = playerName;
+    }
+    
     // 检查API连接
     try {
         await api.healthCheck();
-        console.log('API连接正常');
     } catch (error) {
         showToast('无法连接到服务器，请检查后端服务是否启动', 'error');
         return;
@@ -129,92 +129,30 @@ async function initApp() {
     // 绑定事件监听器
     bindEventListeners();
     
-    // 检查localStorage中是否有保存的用户名
-    const savedUsername = localStorage.getItem('splendor_username');
-    if (savedUsername) {
-        // 尝试自动登录（重连）
+    // 检查是否有刚刚登录的结果（用于显示"重新加入游戏"按钮）
+    const loginResultStr = localStorage.getItem('splendor_login_result');
+    if (loginResultStr) {
         try {
-            const result = await api.login(savedUsername, true);  // force_reconnect = true
-            if (result.success) {
-                await handleLoginSuccess(result);
-                return;
+            const loginResult = JSON.parse(loginResultStr);
+            // 清除登录结果（只用一次）
+            localStorage.removeItem('splendor_login_result');
+            
+            // 如果有活跃游戏，保存并显示"重新加入游戏"按钮
+            if (loginResult.has_active_game && loginResult.active_game) {
+                userActiveGame = loginResult.active_game;
+                showRejoinGameButton(loginResult.active_game);
+                
+                if (loginResult.active_game.status === 'playing') {
+                    showToast('检测到未完成的游戏，点击"重新加入游戏"继续', 'info');
+                } else {
+                    showToast('检测到未完成的房间，点击"重新加入游戏"返回', 'info');
+                }
             }
-        } catch (error) {
-            console.log('自动重连失败:', error);
-            // 清除无效的用户名
-            localStorage.removeItem('splendor_username');
+        } catch (e) {
+            console.error('解析登录结果失败:', e);
+            localStorage.removeItem('splendor_login_result');
         }
     }
-    
-    // 显示登录界面
-    switchScreen('login-screen');
-}
-
-/**
- * 处理用户登录
- */
-async function handleLogin() {
-    const usernameInput = document.getElementById('username-input');
-    const username = usernameInput.value.trim();
-    
-    if (!username) {
-        showToast('请输入用户名', 'error');
-        return;
-    }
-    
-    if (username.length > 20) {
-        showToast('用户名不能超过20个字符', 'error');
-        return;
-    }
-    
-    try {
-        const result = await api.login(username, false);
-        
-        if (result.success) {
-            await handleLoginSuccess(result);
-        }
-    } catch (error) {
-        if (error.message.includes('此玩家已登陆') || error.message.includes('USER_IN_GAME')) {
-            showToast('此玩家正在游戏中，请使用其他用户名', 'error');
-        } else {
-            showToast(`登录失败: ${error.message}`, 'error');
-        }
-    }
-}
-
-/**
- * 处理登录成功
- */
-async function handleLoginSuccess(loginResult) {
-    playerName = loginResult.user.username;
-    userActiveGame = loginResult.active_game;
-    
-    // 保存到localStorage
-    localStorage.setItem('splendor_username', playerName);
-    
-    // 更新UI
-    const userNameElement = document.getElementById('current-user-name');
-    if (userNameElement) {
-        userNameElement.textContent = playerName;
-    }
-    
-    // 切换到大厅
-    switchScreen('lobby-screen');
-    
-    // 检查是否有活跃游戏
-    if (loginResult.has_active_game && userActiveGame) {
-        showRejoinGameButton(userActiveGame);
-        
-        if (userActiveGame.status === 'playing') {
-            showToast('检测到未完成的游戏，点击"重新加入游戏"继续', 'info');
-        } else {
-            showToast('检测到未完成的房间，点击"重新加入游戏"返回', 'info');
-        }
-    } else {
-        hideRejoinGameButton();
-    }
-    
-    showToast(loginResult.message, 'success');
 }
 
 /**
@@ -228,13 +166,12 @@ async function handleLogout() {
         
         // 清除本地数据
         localStorage.removeItem('splendor_username');
+        localStorage.removeItem('splendor_login_result');
         playerName = null;
         userActiveGame = null;
         
-        // 切换到登录界面
-        switchScreen('login-screen');
-        
-        showToast('已退出登录', 'info');
+        // 跳转到登录页面
+        window.location.href = '/login.html';
     } catch (error) {
         showToast(`登出失败: ${error.message}`, 'error');
     }
@@ -397,21 +334,6 @@ async function reconnectToGame(session, gameState) {
  * 绑定事件监听器
  */
 function bindEventListeners() {
-    // 登录界面
-    const loginBtn = document.getElementById('login-btn');
-    if (loginBtn) {
-        loginBtn.addEventListener('click', handleLogin);
-    }
-    
-    const usernameInput = document.getElementById('username-input');
-    if (usernameInput) {
-        usernameInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                handleLogin();
-            }
-        });
-    }
-    
     // 大厅界面
     document.getElementById('logout-btn').addEventListener('click', handleLogout);
     document.getElementById('create-room-btn').addEventListener('click', handleCreateRoom);
@@ -485,27 +407,14 @@ function bindEventListeners() {
         resetGame();
     });
 
-    // 回车键提交玩家名字
-    document.getElementById('player-name-input').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            handleCreateRoom();
-        }
-    });
-}
-
-/**
- * 处理退出登录
- */
-function handleLogout() {
-    // 确认退出
-    if (confirm('确定要退出登录吗？')) {
-        // 清除sessionStorage
-        sessionStorage.removeItem('currentPlayerName');
-        sessionStorage.removeItem('userData');
-        clearGameSession();
-        
-        // 跳转到登录页面
-        window.location.href = '/login.html';
+    // 回车键提交玩家名字（如果存在）
+    const playerNameInput = document.getElementById('player-name-input');
+    if (playerNameInput) {
+        playerNameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                handleCreateRoom();
+            }
+        });
     }
 }
 
@@ -544,7 +453,8 @@ async function handleCreateRoom() {
  * 显示房间列表
  */
 async function handleShowRooms() {
-    if (!checkLoginStatus()) {
+    if (!playerName) {
+        showToast('未登录，请先登录', 'error');
         return;
     }
     
