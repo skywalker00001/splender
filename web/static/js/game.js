@@ -37,6 +37,108 @@ class GameUI {
         
         // 最后一轮提示
         this.finalRoundNotified = false;  // 是否已显示最后一轮提示
+        
+        // 初始化事件委托（一次性绑定，永不丢失）
+        this.initEventDelegation();
+    }
+
+    /**
+     * 初始化事件委托 - 解决轮询导致事件监听器丢失的问题
+     */
+    initEventDelegation() {
+        // 等待DOM加载完成后再绑定
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                // DOM加载后延迟一点再绑定，确保所有元素都已渲染
+                setTimeout(() => this._bindDelegatedEvents(), 100);
+            });
+        } else {
+            // 如果DOM已加载，延迟一点再绑定
+            setTimeout(() => this._bindDelegatedEvents(), 100);
+        }
+    }
+    
+    /**
+     * 绑定委托事件
+     */
+    _bindDelegatedEvents() {
+        // 球池点击事件委托
+        const gemPool = document.getElementById('gem-pool');
+        if (gemPool && !gemPool.dataset.delegated) {
+            gemPool.addEventListener('click', (e) => {
+                const ballDiv = e.target.closest('.gem-item');
+                if (ballDiv && !ballDiv.classList.contains('gem-disabled')) {
+                    const ballType = ballDiv.dataset.ballType;
+                    if (ballType) {
+                        this.selectBall(ballType, ballDiv);
+                    }
+                }
+            });
+            gemPool.dataset.delegated = 'true';
+        }
+        
+        // 桌面卡牌点击事件委托（包括盲预购牌堆）
+        // 使用 game-left 作为容器，它包含所有桌面卡牌（Lv1-3、稀有、传说）
+        const tableauContainer = document.querySelector('.game-left');
+        if (tableauContainer && !tableauContainer.dataset.delegated) {
+            tableauContainer.addEventListener('click', (e) => {
+                // 检查是否点击了盲预购牌堆
+                const deckDiv = e.target.closest('[data-deck-type="blind-reserve"]');
+                if (deckDiv && deckDiv.dataset.deckLevel) {
+                    const level = parseInt(deckDiv.dataset.deckLevel);
+                    if (!isNaN(level) && level >= 1 && level <= 5) {  // 支持Lv1-5（包括稀有Lv4和传说Lv5）
+                        this.blindReserve(level);
+                    }
+                    return;
+                }
+                
+                // 检查是否点击了卡牌
+                const cardDiv = e.target.closest('[data-card-id]');
+                if (cardDiv && cardDiv.dataset.cardId) {
+                    const cardArea = cardDiv.dataset.cardArea || 'tableau';
+                    this.handleCardClick(cardDiv, cardArea);
+                }
+            });
+            tableauContainer.dataset.delegated = 'true';
+        }
+        
+        // 玩家信息区域点击事件委托（已拥有卡牌、预定卡牌、进化按钮、移动端折叠）
+        const allPlayersInfo = document.getElementById('all-players-info');
+        if (allPlayersInfo && !allPlayersInfo.dataset.delegated) {
+            allPlayersInfo.addEventListener('click', (e) => {
+                // 检查是否点击了进化按钮
+                if (e.target.id === 'evolve-btn' || e.target.closest('#evolve-btn')) {
+                    this.performEvolution();
+                    return;
+                }
+                
+                // 检查是否点击了跳过进化按钮
+                if (e.target.id === 'skip-evolution-btn' || e.target.closest('#skip-evolution-btn')) {
+                    this.skipEvolution();
+                    return;
+                }
+                
+                // 检查是否点击了玩家卡片标题（移动端折叠展开）
+                const titleH3 = e.target.closest('.player-card > h3');
+                if (titleH3 && window.innerWidth <= 900) {
+                    const playerCard = titleH3.parentElement;
+                    if (playerCard && playerCard.classList.contains('player-card')) {
+                        playerCard.classList.toggle('expanded');
+                        return;
+                    }
+                }
+                
+                // 检查是否点击了卡牌
+                const cardDiv = e.target.closest('[data-card-id]');
+                if (cardDiv && cardDiv.dataset.cardId) {
+                    const cardArea = cardDiv.dataset.cardArea;
+                    if (cardArea === 'owned' || cardArea === 'reserved') {
+                        this.handleCardClick(cardDiv, cardArea);
+                    }
+                }
+            });
+            allPlayersInfo.dataset.delegated = 'true';
+        }
     }
 
     /**
@@ -69,9 +171,7 @@ class GameUI {
                 <div class="gem-count">${count}</div>
             `;
 
-            if (count > 0 && ballType !== '大师球') {
-                ballDiv.addEventListener('click', () => this.selectBall(ballType, ballDiv));
-            }
+            // 不再在这里绑定事件，使用事件委托（在_bindDelegatedEvents中）
 
             container.appendChild(ballDiv);
         });
@@ -262,6 +362,54 @@ class GameUI {
     }
 
     /**
+     * 统一处理卡牌点击（用于事件委托）
+     */
+    handleCardClick(cardDiv, cardArea) {
+        // 从data-card属性获取完整卡牌信息（如果有的话）
+        try {
+            let card;
+            if (cardDiv.dataset.card) {
+                card = JSON.parse(cardDiv.dataset.card);
+            } else {
+                // 如果没有完整信息，从其他data属性重建
+                const cardId = parseInt(cardDiv.dataset.cardId);
+                const cardLevel = parseInt(cardDiv.dataset.cardLevel);
+                
+                // 验证数据有效性
+                if (isNaN(cardId)) {
+                    console.error('无效的卡牌ID:', cardDiv.dataset.cardId);
+                    return;
+                }
+                
+                card = {
+                    card_id: cardId,
+                    name: cardDiv.dataset.cardName,
+                    level: isNaN(cardLevel) ? 1 : cardLevel,  // 默认等级1
+                };
+            }
+            
+            // 根据卡牌区域处理不同的点击逻辑
+            if (cardArea === 'tableau' || cardArea === 'rare' || cardArea === 'legendary') {
+                // 桌面卡牌：购买/预购
+                this.selectCard(card, cardDiv);
+            } else if (cardArea === 'owned') {
+                // 已拥有卡牌：进化逻辑
+                this.handleEvolutionCardClick(card, 'owned');
+            } else if (cardArea === 'reserved') {
+                // 预定卡牌：根据是否在进化阶段决定
+                if (this.inEvolutionPhase) {
+                    this.handleEvolutionCardClick(card, 'reserved');
+                } else {
+                    // 普通回合：显示购买选项
+                    this.showReservedCardActions(card);
+                }
+            }
+        } catch (error) {
+            console.error('解析卡牌数据失败:', error);
+        }
+    }
+
+    /**
      * 清除球选择
      */
     clearBallSelection() {
@@ -288,6 +436,10 @@ class GameUI {
                 const deckDiv = document.createElement('div');
                 deckDiv.className = 'deck-card';
                 
+                // 设置data属性用于事件委托
+                deckDiv.dataset.deckLevel = level;
+                deckDiv.dataset.deckType = 'blind-reserve';
+                
                 // 检查是否是当前玩家的回合
                 const isMyTurn = this.currentGameState && 
                                  this.currentGameState.current_player === this.currentPlayerName;
@@ -300,7 +452,7 @@ class GameUI {
                     <div class="deck-level">Lv${level}</div>
                     <div class="deck-count">剩余: ${deckSize}</div>
                 `;
-                deckDiv.addEventListener('click', () => this.blindReserve(level));
+                // 不再在这里绑定事件，使用事件委托（在_bindDelegatedEvents中）
                 container.appendChild(deckDiv);
             }
 
@@ -321,6 +473,18 @@ class GameUI {
         if (rareDeckSize > 0) {
             const deckDiv = document.createElement('div');
             deckDiv.className = 'deck-card';
+            
+            // 设置data属性用于事件委托
+            deckDiv.dataset.deckLevel = 4;  // 稀有卡是Lv4
+            deckDiv.dataset.deckType = 'blind-reserve';
+            
+            // 检查是否是当前玩家的回合
+            const isMyTurn = this.currentGameState && 
+                             this.currentGameState.current_player === this.currentPlayerName;
+            if (!isMyTurn) {
+                deckDiv.classList.add('not-my-turn');
+            }
+            
             deckDiv.innerHTML = `
                 <div class="deck-emoji">🎴</div>
                 <div class="deck-level">稀有牌堆</div>
@@ -344,6 +508,18 @@ class GameUI {
         if (legendaryDeckSize > 0) {
             const deckDiv = document.createElement('div');
             deckDiv.className = 'deck-card';
+            
+            // 设置data属性用于事件委托
+            deckDiv.dataset.deckLevel = 5;  // 传说卡是Lv5
+            deckDiv.dataset.deckType = 'blind-reserve';
+            
+            // 检查是否是当前玩家的回合
+            const isMyTurn = this.currentGameState && 
+                             this.currentGameState.current_player === this.currentPlayerName;
+            if (!isMyTurn) {
+                deckDiv.classList.add('not-my-turn');
+            }
+            
             deckDiv.innerHTML = `
                 <div class="deck-emoji">🎴</div>
                 <div class="deck-level">传说牌堆</div>
@@ -367,7 +543,14 @@ class GameUI {
         const rarityClass = card.rarity === 'rare' ? 'rare-card' : 
                            (card.rarity === 'legendary' ? 'legendary-card' : 'pokemon-card');
         cardDiv.className = rarityClass;
-        cardDiv.dataset.cardData = JSON.stringify(card);
+        cardDiv.dataset.card = JSON.stringify(card);  // 修复：改为 card 而不是 cardData
+        
+        // 设置data属性用于事件委托
+        cardDiv.dataset.cardId = card.card_id;
+        cardDiv.dataset.cardName = card.name;
+        cardDiv.dataset.cardLevel = card.level;
+        cardDiv.dataset.cardArea = card.rarity === 'rare' ? 'rare' : 
+                                   (card.rarity === 'legendary' ? 'legendary' : 'tableau');
         
         // 检查是否是当前玩家的回合，如果不是则添加禁用样式
         const isMyTurn = this.currentGameState && 
@@ -411,7 +594,7 @@ class GameUI {
             ${evolutionStr}
         `;
 
-        cardDiv.addEventListener('click', () => this.selectCard(card, cardDiv));
+        // 不再在这里绑定事件，使用事件委托（在_bindDelegatedEvents中）
 
         return cardDiv;
     }
@@ -715,13 +898,7 @@ class GameUI {
             playerCard.innerHTML = titleHTML;
             playerCard.appendChild(playerInfoDiv);
             
-            // 移动端：点击标题展开/折叠详细信息
-            const title = playerCard.querySelector('h3');
-            title.addEventListener('click', () => {
-                if (window.innerWidth <= 900) {
-                    playerCard.classList.toggle('expanded');
-                }
-            });
+            // 移动端：点击标题展开/折叠详细信息（已通过事件委托处理）
             
             // 默认只展开自己的卡片（移动端）
             if (isMe && window.innerWidth <= 900) {
@@ -737,7 +914,9 @@ class GameUI {
      */
     formatCardInfo(card, isReserved = false, isClickable = false, cardArea = 'reserved') {
         const miniCardClass = isClickable ? 'mini-card mini-card-clickable' : 'mini-card';
-        const cardDataAttr = isClickable ? ` data-card='${JSON.stringify(card)}' data-card-area='${cardArea}'` : '';
+        // 设置data属性用于事件委托
+        const cardDataAttr = isClickable ? 
+            ` data-card='${JSON.stringify(card)}' data-card-area='${cardArea}' data-card-id='${card.card_id}' data-card-name='${card.name}' data-card-level='${card.level}'` : '';
         
         let info = `<div class="${miniCardClass}"${cardDataAttr}>`;
         
@@ -871,67 +1050,8 @@ class GameUI {
             </div>
         `;
 
-        // 如果是我自己的预购区，添加点击事件委托
-        if (canClickReserved) {
-            const reservedGrid = playerDiv.querySelector('.cards-grid-reserved');
-            if (reservedGrid) {
-                reservedGrid.addEventListener('click', (e) => {
-                    const miniCard = e.target.closest('.mini-card-clickable');
-                    if (miniCard) {
-                        const cardData = miniCard.dataset.card;
-                        if (cardData) {
-                            try {
-                                const card = JSON.parse(cardData);
-                                // 如果在进化阶段，处理进化选择
-                                if (this.inEvolutionPhase) {
-                                    this.handleEvolutionCardClick(card, 'reserved');
-                                } else {
-                                    // 否则显示购买选项
-                                    this.showReservedCardActions(card);
-                                }
-                            } catch (error) {
-                                console.error('解析卡牌数据失败:', error);
-                            }
-                        }
-                    }
-                });
-            }
-        }
-        
-        // 如果是我自己的已拥有卡牌区，在进化阶段添加点击事件
-        if (canClickOwned) {
-            const ownedGrid = playerDiv.querySelector('.player-cards .cards-grid');
-            if (ownedGrid) {
-                ownedGrid.addEventListener('click', (e) => {
-                    const miniCard = e.target.closest('.mini-card-clickable');
-                    if (miniCard) {
-                        const cardData = miniCard.dataset.card;
-                        if (cardData) {
-                            try {
-                                const card = JSON.parse(cardData);
-                                this.handleEvolutionCardClick(card, 'owned');
-                            } catch (error) {
-                                console.error('解析卡牌数据失败:', error);
-                            }
-                        }
-                    }
-                });
-            }
-        }
-        
-        // 如果在进化阶段，绑定进化按钮事件
-        if (isMyself && isMyTurn && this.inEvolutionPhase) {
-            const evolveBtn = playerDiv.querySelector('#evolve-btn');
-            const skipBtn = playerDiv.querySelector('#skip-evolution-btn');
-            
-            if (evolveBtn) {
-                evolveBtn.onclick = () => this.performEvolution();
-            }
-            
-            if (skipBtn) {
-                skipBtn.onclick = () => this.skipEvolution();
-            }
-        }
+        // 卡牌点击事件和进化按钮都已通过父容器的事件委托处理（在_bindDelegatedEvents中）
+        // 不再需要在这里单独绑定事件
 
         return playerDiv;
     }
@@ -1068,8 +1188,6 @@ class GameUI {
      * 处理进化阶段的卡牌点击
      */
     handleEvolutionCardClick(card, cardArea) {
-        console.log(`进化卡牌点击: ${card.name}, 区域: ${cardArea}, card_id: ${card.card_id}`);
-        
         // 记录点击的卡牌
         this.lastClickedCards.push({ card, area: cardArea });
         
@@ -1078,11 +1196,8 @@ class GameUI {
             this.lastClickedCards.shift();
         }
         
-        console.log(`当前已点击卡牌数量: ${this.lastClickedCards.length}`, this.lastClickedCards);
-        
         // 如果只点击了第一张卡（已拥有的）
         if (this.lastClickedCards.length === 1 && cardArea === 'owned') {
-            console.log('第一张卡（已拥有）被选中');
             // 清除之前的选择
             this.selectedBaseCard = null;
             this.selectedTargetCard = null;
@@ -1102,7 +1217,25 @@ class GameUI {
             const first = this.lastClickedCards[0];
             const second = this.lastClickedCards[1];
             
-            // 第一张必须是已拥有的，第二张必须是场上/预定区的
+            // 情况1：连续点击两张已拥有卡牌 - 用户在选择要进化哪张
+            if (first.area === 'owned' && second.area === 'owned') {
+                // 清除第一张的高亮
+                this.clearEvolutionHighlight();
+                
+                // 选择第二张作为新的基础卡
+                this.selectedBaseCard = second.card;
+                this.selectedTargetCard = null;
+                
+                // 重置点击记录，只保留第二张
+                this.lastClickedCards = [second];
+                
+                // 高亮第二张
+                this.highlightCard(second.card, 'evolution-base-selected');
+                showToast(`已选择: ${second.card.name}，请选择进化目标`, 'info');
+                return;
+            }
+            
+            // 情况2：第一张是已拥有的，第二张是场上/预定区的 - 尝试进化
             if (first.area === 'owned' && (second.area === 'tableau' || second.area === 'reserved')) {
                 // 检查进化关系
                 const evolutionCheck = this.canEvolve(first.card, second.card);
@@ -1151,11 +1284,13 @@ class GameUI {
                     }
                 }
             } else {
-                // 点击顺序不对，重置
+                // 情况3：点击顺序不对（例如先点场上卡再点已拥有卡），重置
                 this.lastClickedCards = [];
                 this.selectedBaseCard = null;
                 this.selectedTargetCard = null;
                 this.clearEvolutionHighlight();
+                
+                showToast('请先点击已拥有的卡牌，再点击目标卡牌', 'error');
             }
         }
     }
@@ -1164,11 +1299,8 @@ class GameUI {
      * 高亮指定卡牌
      */
     highlightCard(card, className) {
-        console.log(`尝试高亮卡牌: ${card.name}, card_id: ${card.card_id}, className: ${className}`);
-        
         // 在所有卡牌中查找并高亮
         const allCards = document.querySelectorAll('.mini-card, .pokemon-card, .rare-card, .legendary-card');
-        let foundCount = 0;
         
         allCards.forEach(cardElement => {
             // 支持两种属性名：dataset.card 和 dataset.cardData
@@ -1178,20 +1310,12 @@ class GameUI {
                     const cardObj = JSON.parse(cardData);
                     if (cardObj.card_id === card.card_id) {
                         cardElement.classList.add(className);
-                        foundCount++;
-                        console.log(`找到并高亮了卡牌: ${card.name}`, cardElement);
                     }
                 } catch (e) {
                     console.error('解析卡牌数据失败:', e);
                 }
             }
         });
-        
-        if (foundCount === 0) {
-            console.warn(`未找到卡牌 ${card.name} (card_id: ${card.card_id})`);
-        } else {
-            console.log(`成功高亮 ${foundCount} 个卡牌元素`);
-        }
     }
     
     /**
