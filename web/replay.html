@@ -98,14 +98,47 @@
             font-size: 16px;
         }
 
+        /* 轮次分组样式 */
+        .replay-round-group {
+            margin-bottom: 15px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .replay-round-group.current {
+            border-color: rgba(243, 156, 18, 0.5);
+        }
+
+        .replay-round-header {
+            padding: 10px 15px;
+            background: rgba(52, 152, 219, 0.3);
+            color: #3498db;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .replay-round-group.current .replay-round-header {
+            background: rgba(243, 156, 18, 0.3);
+            color: #f39c12;
+        }
+
+        .replay-round-turns {
+            padding: 8px;
+        }
+
         .replay-turn-item {
             padding: 10px;
             background: rgba(255, 255, 255, 0.05);
             border-radius: 8px;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             cursor: pointer;
             transition: all 0.2s ease;
             border: 2px solid transparent;
+        }
+
+        .replay-turn-item:last-child {
+            margin-bottom: 0;
         }
 
         .replay-turn-item:hover {
@@ -125,7 +158,11 @@
 
         .replay-turn-item-player {
             font-size: 13px;
-            color: #95a5a6;
+            color: #bdc3c7;
+        }
+
+        .replay-turn-item.active .replay-turn-item-player {
+            color: #f39c12;
         }
 
         .replay-main {

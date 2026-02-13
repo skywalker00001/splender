@@ -203,7 +203,8 @@ class AIPlayer:
                     score += card.victory_points * 10
                     
                     # 附加：如果在预购区，额外加分（释放预购槽位）
-                    if card in player.reserved_cards:
+                    # 使用card_id比较，避免引用问题
+                    if any(c.card_id == card.card_id for c in player.reserved_cards):
                         score += 5
                     
                     return score

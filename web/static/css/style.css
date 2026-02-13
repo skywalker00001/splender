@@ -1709,6 +1709,87 @@ select {
 }
 
 /* ============================================
+   分数控制区域
+   ============================================ */
+.debug-score-control {
+    display: flex;
+    justify-content: center;
+}
+
+.debug-score-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 30px;
+    background: rgba(255, 215, 0, 0.1);
+    border: 2px solid rgba(255, 215, 0, 0.4);
+    border-radius: 12px;
+    min-width: 250px;
+}
+
+.debug-score-display {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.debug-score-label {
+    font-size: 1.2em;
+    color: #ffd700;
+}
+
+.debug-score-value {
+    font-size: 2.5em;
+    font-weight: bold;
+    color: #ffd700;
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+
+/* ============================================
+   快捷按钮区域
+   ============================================ */
+.debug-quick-buttons {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.debug-quick-btn {
+    padding: 12px 24px;
+    font-size: 1.1em;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(135deg, #4CAF50, #45a049);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.debug-quick-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(76, 175, 80, 0.4);
+}
+
+.debug-quick-btn:active {
+    transform: translateY(0);
+}
+
+.debug-quick-btn.danger {
+    background: linear-gradient(135deg, #f44336, #d32f2f);
+}
+
+.debug-quick-btn.danger:hover {
+    box-shadow: 0 6px 12px rgba(244, 67, 54, 0.4);
+}
+
+/* ============================================
    球控制区域 - 横向3列布局
    ============================================ */
 .debug-balls-grid {

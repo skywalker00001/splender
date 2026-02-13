@@ -208,7 +208,7 @@ class GameRoom:
         """获取玩家状态字典"""
         return {
             "balls": {bt.value: count for bt, count in player.balls.items()},
-            "victory_points": player.victory_points,
+            "victory_points": player.get_victory_points(),
             "owned_cards_count": len(player.display_area),
             "reserved_cards_count": len(player.reserved_cards)
         }
@@ -321,7 +321,7 @@ class GameRoom:
                         }
                         for card in player.reserved_cards
                     ],
-                    "victory_points": player.victory_points,
+                    "victory_points": player.get_victory_points(),
                     "permanent_balls": {ball.value: count for ball, count in player.get_permanent_balls().items() if count > 0},
                     "needs_return_balls": player.needs_return_balls,
                     "last_action": player.last_action
@@ -1424,28 +1424,37 @@ def evolve_card(room_id):
         # 执行进化
         if player.evolve(base_card, target_card):
             # 从场上或预购区移除目标卡（在原位置补充新牌）
+            # 使用card_id进行更安全的比较，避免引用问题
+            card_removed = False
             for level, cards in room.game.tableau.items():
-                if target_card in cards:
-                    card_index = cards.index(target_card)  # 记录原位置
-                    cards.remove(target_card)
-                    # 补充场上卡牌
-                    deck = [room.game.deck_lv1, room.game.deck_lv2, room.game.deck_lv3][level-1]
-                    if deck:
-                        cards.insert(card_index, deck.pop())  # 在原位置插入
+                for idx, c in enumerate(cards):
+                    if c.card_id == target_card.card_id:
+                        cards.pop(idx)  # 移除卡牌
+                        # 补充场上卡牌
+                        deck = [room.game.deck_lv1, room.game.deck_lv2, room.game.deck_lv3][level-1]
+                        if deck:
+                            cards.insert(idx, deck.pop())  # 在原位置插入
+                        card_removed = True
+                        break
+                if card_removed:
                     break
             
-            if room.game.rare_card == target_card:
+            # 稀有/传说卡处理（使用card_id比较）
+            if room.game.rare_card and room.game.rare_card.card_id == target_card.card_id:
                 room.game.rare_card = None
                 if room.game.rare_deck:
                     room.game.rare_card = room.game.rare_deck.pop()
             
-            if room.game.legendary_card == target_card:
+            if room.game.legendary_card and room.game.legendary_card.card_id == target_card.card_id:
                 room.game.legendary_card = None
                 if room.game.legendary_deck:
                     room.game.legendary_card = room.game.legendary_deck.pop()
             
-            if target_card in player.reserved_cards:
-                player.reserved_cards.remove(target_card)
+            # 从预购区移除（使用card_id比较）
+            for idx, c in enumerate(player.reserved_cards):
+                if c.card_id == target_card.card_id:
+                    player.reserved_cards.pop(idx)
+                    break
             
             # 记录进化历史（包含card_id用于准确回放）
             room.record_action("evolve_card", {
@@ -1895,6 +1904,44 @@ def user_login():
 # 调试API
 # =======================
 
+@app.route('/api/rooms/<room_id>/debug/adjust_score', methods=['POST'])
+def debug_adjust_score(room_id):
+    """调整玩家分数（调试用）"""
+    data = request.get_json()
+    player_name = data.get('player_name')
+    delta = data.get('delta', 0)
+    
+    with room_lock:
+        if room_id not in game_rooms:
+            return jsonify({"error": "房间不存在"}), 404
+        
+        room = game_rooms[room_id]
+        if not room.game:
+            return jsonify({"error": "游戏未开始"}), 400
+        
+        # 找到玩家
+        player = None
+        for p in room.game.players:
+            if p.name == player_name:
+                player = p
+                break
+        
+        if not player:
+            return jsonify({"error": "玩家不存在"}), 404
+        
+        # 调整分数（额外分数）
+        old_score = getattr(player, 'extra_victory_points', 0)
+        player.extra_victory_points = old_score + delta
+        new_total = player.get_victory_points()
+        
+        room.last_activity = datetime.now()
+        
+        return jsonify({
+            "success": True,
+            "message": f"分数已调整: {delta:+d}",
+            "new_score": new_total
+        })
+
 @app.route('/api/rooms/<room_id>/debug/adjust_balls', methods=['POST'])
 def debug_adjust_balls(room_id):
     """调整玩家持有球（调试用）"""
@@ -2074,27 +2121,30 @@ def debug_add_card(room_id):
             player.reserved_cards.append(card_copy)
         
         # 从场上移除并补充（在原位置补充新牌）
+        # 使用card_id进行更安全的比较，避免引用问题
         removed = False
         for level, cards in room.game.tableau.items():
-            if target_card in cards:
-                card_index = cards.index(target_card)  # 记录原位置
-                cards.remove(target_card)
-                # 补充卡牌
-                deck = [room.game.deck_lv1, room.game.deck_lv2, room.game.deck_lv3][level-1]
-                if deck:
-                    cards.insert(card_index, deck.pop())  # 在原位置插入
-                removed = True
+            for idx, c in enumerate(cards):
+                if c.card_id == target_card.card_id:
+                    cards.pop(idx)  # 移除卡牌
+                    # 补充卡牌
+                    deck = [room.game.deck_lv1, room.game.deck_lv2, room.game.deck_lv3][level-1]
+                    if deck:
+                        cards.insert(idx, deck.pop())  # 在原位置插入
+                    removed = True
+                    break
+            if removed:
                 break
         
-        # 检查稀有/传说卡
+        # 检查稀有/传说卡（使用card_id比较）
         if not removed:
-            if room.game.rare_card == target_card:
+            if room.game.rare_card and room.game.rare_card.card_id == target_card.card_id:
                 if room.game.rare_deck:
                     room.game.rare_card = room.game.rare_deck.pop()
                 else:
                     room.game.rare_card = None
                 removed = True
-            elif room.game.legendary_card == target_card:
+            elif room.game.legendary_card and room.game.legendary_card.card_id == target_card.card_id:
                 if room.game.legendary_deck:
                     room.game.legendary_card = room.game.legendary_deck.pop()
                 else:

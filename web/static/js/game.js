@@ -26,6 +26,7 @@ class GameUI {
         this.hasPerformedEvolution = false;  // 是否已进化
         this.ballsToReturn = {};  // 选择要放回的球 {球类型: 数量}
         this.waitingForReturnBalls = false;  // 是否在等待放回球
+        this.returnBallsInProgress = false;  // 是否正在处理放球（防止弹窗重复）
         this.currentActionSteps = [];  // 记录当前行动的所有步骤
         this.lastActionPlayer = null;  // 上一个行动的玩家，用于检测行动切换
         
@@ -1129,10 +1130,13 @@ class GameUI {
         }
         
         // 检查是否需要放回球
-        if (isMyTurn && gameState.player_states[this.currentPlayerName]?.needs_return_balls) {
+        // 使用 returnBallsInProgress 标志防止弹窗在放球成功后重复出现
+        const playerNeedsReturnBalls = gameState.player_states[this.currentPlayerName]?.needs_return_balls;
+        if (isMyTurn && playerNeedsReturnBalls && !this.returnBallsInProgress) {
+            console.log('需要放回球, isMyTurn:', isMyTurn, 'needs_return_balls:', playerNeedsReturnBalls, 'returnBallsInProgress:', this.returnBallsInProgress);
             this.showReturnBallsModal();
-        } else if (this.waitingForReturnBalls && isMyTurn) {
-            // 拿球后不需要放回球，继续进化/结束回合流程
+        } else if (this.waitingForReturnBalls && isMyTurn && !gameState.player_states[this.currentPlayerName]?.needs_return_balls) {
+            // 拿球后不需要放回球（或已放回球），继续进化/结束回合流程
             this.waitingForReturnBalls = false;
             this.checkAndShowEvolution();
         }
@@ -1542,6 +1546,7 @@ class GameUI {
                 // 重置行动状态
                 this.hasPerformedMainAction = false;
                 this.hasPerformedEvolution = false;
+                this.returnBallsInProgress = false;  // 重置放球标志
                 this.hideEvolutionControls();  // 隐藏进化按钮
             } else {
                 showToast(response.error || '操作失败', 'error');
@@ -1794,6 +1799,12 @@ class GameUI {
         const totalBalls = Object.values(currentPlayer.balls || {}).reduce((a, b) => a + b, 0);
         const neededReturn = totalBalls - 10;
         
+        // Bug修复：如果不需要放回球（球数<=10），不显示弹窗
+        if (neededReturn <= 0) {
+            console.log('不需要放回球，球数:', totalBalls);
+            return;
+        }
+        
         // 初始化要放回的球
         this.ballsToReturn = {};
         const ballOrder = ['黑', '粉', '黄', '蓝', '红', '大师球'];
@@ -1981,6 +1992,9 @@ class GameUI {
      */
     async executeReturnBalls() {
         try {
+            // 设置标志，防止弹窗重复出现
+            this.returnBallsInProgress = true;
+            
             const response = await api.returnBalls(this.currentRoomId, this.currentPlayerName, this.ballsToReturn);
             if (response.success) {
                 // 记录动作
@@ -2001,13 +2015,19 @@ class GameUI {
                 }
                 // 清除等待标志
                 this.waitingForReturnBalls = false;
-                // 检查进化
-                this.checkAndShowEvolution();
+                // 立即刷新游戏状态，避免轮询拿到旧状态
+                await this.pollGameState();
+                // 检查进化 - 使用await确保异步操作完成
+                await this.checkAndShowEvolution();
             } else {
                 showToast(response.error || '放回球失败', 'error');
+                // 失败时重置标志
+                this.returnBallsInProgress = false;
             }
         } catch (error) {
             showToast('操作失败: ' + error.message, 'error');
+            // 异常时重置标志
+            this.returnBallsInProgress = false;
         }
     }
     

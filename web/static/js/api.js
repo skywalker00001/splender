@@ -25,10 +25,27 @@ class SplendorAPI {
 
         try {
             const response = await fetch(url, config);
-            const data = await response.json();
+            
+            // 尝试解析JSON，处理空响应的情况
+            let data;
+            const text = await response.text();
+            if (text) {
+                try {
+                    data = JSON.parse(text);
+                } catch (parseError) {
+                    console.error('JSON解析失败:', text);
+                    throw new Error('服务器响应格式错误');
+                }
+            } else {
+                // 空响应
+                if (!response.ok) {
+                    throw new Error(`请求失败 (${response.status})`);
+                }
+                data = {};
+            }
             
             if (!response.ok) {
-                throw new Error(data.error || '请求失败');
+                throw new Error(data.error || `请求失败 (${response.status})`);
             }
             
             return data;
@@ -270,6 +287,19 @@ class SplendorAPI {
     }
 
     // ============ 调试API ============
+
+    /**
+     * 调整玩家分数（调试用）
+     */
+    async debugAdjustScore(roomId, playerName, delta) {
+        return this.request(`/rooms/${roomId}/debug/adjust_score`, {
+            method: 'POST',
+            body: JSON.stringify({
+                player_name: playerName,
+                delta: delta
+            })
+        });
+    }
 
     /**
      * 调整玩家持有球（调试用）

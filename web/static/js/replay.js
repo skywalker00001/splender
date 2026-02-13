@@ -6,6 +6,25 @@ const API_BASE = '';
 let currentHistory = null;
 let currentTurnIndex = 0;
 
+/**
+ * 计算轮次信息
+ * 一个大轮次 = 所有玩家都行动一次
+ */
+function calculateRoundInfo(turnIndex) {
+    const playerCount = currentHistory.players.length;
+    const roundNumber = Math.floor(turnIndex / playerCount) + 1;
+    const playerIndexInRound = turnIndex % playerCount;
+    return { roundNumber, playerIndexInRound, playerCount };
+}
+
+/**
+ * 获取总轮次数
+ */
+function getTotalRounds() {
+    const playerCount = currentHistory.players.length;
+    return Math.ceil(currentHistory.turns.length / playerCount);
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
@@ -65,6 +84,8 @@ function renderReplay() {
         duration = `${minutes}分${seconds}秒`;
     }
     
+    const totalRounds = getTotalRounds();
+    
     contentDiv.innerHTML = `
         <div class="replay-header">
             <div class="replay-game-info">
@@ -74,17 +95,19 @@ function renderReplay() {
                     <span>🏆 胜者: ${currentHistory.winner || '未知'}</span>
                     <span>🕐 开始: ${formatTime(currentHistory.start_time)}</span>
                     <span>⏱️ 时长: ${duration}</span>
-                    <span>🔄 总回合: ${currentHistory.total_turns}</span>
+                    <span>🔄 总轮次: ${totalRounds}</span>
+                    <span>👥 玩家数: ${currentHistory.players.length}</span>
                 </div>
             </div>
             <div class="replay-controls">
-                <button class="replay-nav-button" onclick="previousTurn()" id="prev-btn">⬅️ 上一回合</button>
+                <button class="replay-nav-button" onclick="previousTurn()" id="prev-btn">⬅️ 上一步</button>
                 <select class="replay-turn-selector" id="turn-selector" onchange="jumpToTurn(this.value)">
-                    ${currentHistory.turns.map((turn, index) => `
-                        <option value="${index}">回合 ${turn.turn} - ${turn.player}</option>
-                    `).join('')}
+                    ${currentHistory.turns.map((turn, index) => {
+                        const { roundNumber } = calculateRoundInfo(index);
+                        return `<option value="${index}">第${roundNumber}轮 - ${turn.player}</option>`;
+                    }).join('')}
                 </select>
-                <button class="replay-nav-button" onclick="nextTurn()" id="next-btn">下一回合 ➡️</button>
+                <button class="replay-nav-button" onclick="nextTurn()" id="next-btn">下一步 ➡️</button>
             </div>
         </div>
         
@@ -107,20 +130,44 @@ function renderReplay() {
 }
 
 /**
- * 渲染回合列表
+ * 渲染回合列表（按轮次分组）
  */
 function renderTurnList() {
     const turnListDiv = document.getElementById('turn-list');
+    const playerCount = currentHistory.players.length;
+    const totalRounds = getTotalRounds();
     
-    const listHTML = currentHistory.turns.map((turn, index) => {
-        const isActive = index === currentTurnIndex;
-        return `
-            <div class="replay-turn-item ${isActive ? 'active' : ''}" onclick="jumpToTurn(${index})">
-                <div class="replay-turn-item-title">回合 ${turn.turn}</div>
-                <div class="replay-turn-item-player">👤 ${turn.player}</div>
+    let listHTML = '';
+    
+    for (let round = 1; round <= totalRounds; round++) {
+        // 计算该轮次的起始和结束索引
+        const startIndex = (round - 1) * playerCount;
+        const endIndex = Math.min(round * playerCount, currentHistory.turns.length);
+        
+        // 检查当前选中的回合是否在这一轮
+        const isCurrentRound = currentTurnIndex >= startIndex && currentTurnIndex < endIndex;
+        
+        listHTML += `
+            <div class="replay-round-group ${isCurrentRound ? 'current' : ''}">
+                <div class="replay-round-header">第 ${round} 轮</div>
+                <div class="replay-round-turns">
+        `;
+        
+        for (let i = startIndex; i < endIndex; i++) {
+            const turn = currentHistory.turns[i];
+            const isActive = i === currentTurnIndex;
+            listHTML += `
+                <div class="replay-turn-item ${isActive ? 'active' : ''}" onclick="jumpToTurn(${i})">
+                    <div class="replay-turn-item-player">👤 ${turn.player}</div>
+                </div>
+            `;
+        }
+        
+        listHTML += `
+                </div>
             </div>
         `;
-    }).join('');
+    }
     
     turnListDiv.innerHTML = listHTML;
 }
@@ -279,10 +326,13 @@ function renderTurnDetail(turn) {
         </div>
     ` : '<div class="replay-state-box"><p>无数据</p></div>';
     
+    // 计算当前轮次信息
+    const { roundNumber, playerIndexInRound } = calculateRoundInfo(currentTurnIndex);
+    
     turnDetailDiv.innerHTML = `
         <div class="replay-turn-detail">
             <div class="replay-turn-header">
-                <h3 class="replay-turn-title">回合 ${turn.turn}</h3>
+                <h3 class="replay-turn-title">第 ${roundNumber} 轮</h3>
                 <div class="replay-player-badge">👤 ${turn.player}</div>
             </div>
             

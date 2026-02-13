@@ -60,9 +60,14 @@ class Player:
         self.evolved_cards: List[PokemonCard] = []  # 被替换的进化前卡（用于平分判定）
         self.reserved_cards: List[PokemonCard] = []  # 手牌（预定的卡）
         self.victory_points = 0
+        self.extra_victory_points = 0  # 额外分数（调试用）
         self.has_evolved_this_turn = False  # 本回合是否已进化
         self.needs_return_balls = False  # 是否需要放回球（超过10个）
         self.last_action = ""  # 记录最后一次行动的描述
+    
+    def get_victory_points(self) -> int:
+        """获取总分数（包括额外分数）"""
+        return self.victory_points + self.extra_victory_points
         
     def get_permanent_balls(self) -> Dict[BallType, int]:
         """获取展示区永久球数量"""
@@ -560,13 +565,18 @@ class SplendorPokemonGame:
             player.balls[BallType.MASTER] += 1
         
         # 从场上移除并补充（在原位置补充新牌）
+        # 使用card_id进行更安全的比较，避免引用问题
+        card_removed = False
         for level, cards in self.tableau.items():
-            if card in cards:
-                card_index = cards.index(card)  # 记录原位置
-                cards.remove(card)
-                deck = [self.deck_lv1, self.deck_lv2, self.deck_lv3][level-1]
-                if deck:
-                    cards.insert(card_index, deck.pop())  # 在原位置插入
+            for idx, c in enumerate(cards):
+                if c.card_id == card.card_id:
+                    cards.pop(idx)  # 移除卡牌
+                    deck = [self.deck_lv1, self.deck_lv2, self.deck_lv3][level-1]
+                    if deck:
+                        cards.insert(idx, deck.pop())  # 在原位置插入
+                    card_removed = True
+                    break
+            if card_removed:
                 break
         
         # 检查球数上限（预购获得大师球后可能超过10个）
@@ -584,23 +594,31 @@ class SplendorPokemonGame:
             return False
         
         # 从场上或手牌移除（在原位置补充新牌）
+        # 使用card_id进行更安全的比较，避免引用问题
+        card_removed = False
         for level, cards in self.tableau.items():
-            if card in cards:
-                card_index = cards.index(card)  # 记录原位置
-                cards.remove(card)
-                deck = [self.deck_lv1, self.deck_lv2, self.deck_lv3][level-1]
-                if deck:
-                    cards.insert(card_index, deck.pop())  # 在原位置插入
+            for idx, c in enumerate(cards):
+                if c.card_id == card.card_id:
+                    cards.pop(idx)  # 移除卡牌
+                    deck = [self.deck_lv1, self.deck_lv2, self.deck_lv3][level-1]
+                    if deck:
+                        cards.insert(idx, deck.pop())  # 在原位置插入
+                    card_removed = True
+                    break
+            if card_removed:
                 break
         
-        if card in player.reserved_cards:
-            player.reserved_cards.remove(card)
+        # 从预购区移除（如果存在）
+        for idx, c in enumerate(player.reserved_cards):
+            if c.card_id == card.card_id:
+                player.reserved_cards.pop(idx)
+                break
         
-        # 稀有/传说补充
-        if card == self.rare_card and self.rare_deck:
-            self.rare_card = self.rare_deck.pop()
-        elif card == self.legendary_card and self.legendary_deck:
-            self.legendary_card = self.legendary_deck.pop()
+        # 稀有/传说补充（使用card_id比较）
+        if self.rare_card and self.rare_card.card_id == card.card_id:
+            self.rare_card = self.rare_deck.pop() if self.rare_deck else None
+        elif self.legendary_card and self.legendary_card.card_id == card.card_id:
+            self.legendary_card = self.legendary_deck.pop() if self.legendary_deck else None
         
         return True
     
@@ -636,13 +654,21 @@ class SplendorPokemonGame:
             if target_card and player.can_evolve(target_card, base_card):
                 # 执行进化
                 if player.evolve(base_card, target_card):
-                    # 从场上或手牌移除进化后的卡
+                    # 从场上或手牌移除进化后的卡（使用card_id比较，避免引用问题）
+                    card_removed = False
                     for level, cards in self.tableau.items():
-                        if target_card in cards:
-                            cards.remove(target_card)
+                        for idx, c in enumerate(cards):
+                            if c.card_id == target_card.card_id:
+                                cards.pop(idx)
+                                card_removed = True
+                                break
+                        if card_removed:
                             break
-                    if target_card in player.reserved_cards:
-                        player.reserved_cards.remove(target_card)
+                    # 从预购区移除（使用card_id比较）
+                    for idx, c in enumerate(player.reserved_cards):
+                        if c.card_id == target_card.card_id:
+                            player.reserved_cards.pop(idx)
+                            break
                     print(f"{player.name} 进化：{base_card.name} → {target_card.name}")
                     return  # 每回合最多进化1次
     
@@ -661,13 +687,13 @@ class SplendorPokemonGame:
             pass
         else:
             # 不是最后一轮，检查当前玩家分数
-            if player.victory_points >= self.victory_points_goal:
+            if player.get_victory_points() >= self.victory_points_goal:
                 # 首次触发胜利分数
                 is_last_player = (current_player_idx == len(self.players) - 1)  # 是否是最后一个玩家
                 
                 if is_last_player:
                     # 最后一个玩家触发胜利分数，游戏直接结束
-                    print(f"{player.name}（最后玩家）达到{player.victory_points}分，游戏结束！")
+                    print(f"{player.name}（最后玩家）达到{player.get_victory_points()}分，游戏结束！")
                     self.game_over = True
                     self._calculate_final_rankings()
                     return  # 直接结束，不切换玩家
@@ -675,7 +701,7 @@ class SplendorPokemonGame:
                     # 非最后玩家触发胜利分数，进入最后一轮
                     self.final_round_triggered = True
                     self.final_round_starter = current_player_idx
-                    print(f"{player.name} 达到{player.victory_points}分！游戏进入最后一轮")
+                    print(f"{player.name} 达到{player.get_victory_points()}分！游戏进入最后一轮")
         
         # 2. 重置回合状态
         player.has_evolved_this_turn = False
@@ -702,7 +728,7 @@ class SplendorPokemonGame:
         players_with_index = [(i, p) for i, p in enumerate(self.players)]
         
         # 排序：分数降序，同分时索引降序
-        players_with_index.sort(key=lambda x: (x[1].victory_points, x[0]), reverse=True)
+        players_with_index.sort(key=lambda x: (x[1].get_victory_points(), x[0]), reverse=True)
         
         # 设置winner为第一名
         self.winner = players_with_index[0][1]
@@ -714,7 +740,7 @@ class SplendorPokemonGame:
         print("\n=== 最终排名 ===")
         for rank, (original_idx, player) in enumerate(players_with_index, 1):
             medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"{rank}️⃣")
-            print(f"{medal} 第{rank}名：{player.name}（玩家{original_idx + 1}），{player.victory_points}分")
+            print(f"{medal} 第{rank}名：{player.name}（玩家{original_idx + 1}），{player.get_victory_points()}分")
     
     def get_final_rankings(self):
         """获取最终排名列表
@@ -735,7 +761,7 @@ class SplendorPokemonGame:
                 "rank": rank,
                 "player_name": player.name,
                 "player_number": original_idx + 1,
-                "victory_points": player.victory_points
+                "victory_points": player.get_victory_points()
             })
         
         return rankings

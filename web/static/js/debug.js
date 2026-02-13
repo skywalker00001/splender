@@ -121,9 +121,38 @@ class DebugPanel {
      * 渲染调试面板
      */
     render() {
+        this.renderScoreControl();
         this.renderBallControls();
         this.renderPermanentBallControls();
         this.updateCardList();
+    }
+    
+    /**
+     * 渲染分数控制
+     */
+    renderScoreControl() {
+        const container = document.getElementById('debug-score-control');
+        if (!container) return;
+        
+        const currentPlayer = gameUI.currentGameState.player_states[gameUI.currentPlayerName];
+        if (!currentPlayer) return;
+        
+        const currentScore = currentPlayer.victory_points || 0;
+        
+        container.innerHTML = `
+            <div class="debug-score-item">
+                <div class="debug-score-display">
+                    <span class="debug-score-label">当前分数:</span>
+                    <span class="debug-score-value">${currentScore}</span>
+                </div>
+                <div class="debug-ball-controls">
+                    <button onclick="debugPanel.adjustScore(-5)">-5</button>
+                    <button onclick="debugPanel.adjustScore(-1)">-1</button>
+                    <button onclick="debugPanel.adjustScore(1)">+1</button>
+                    <button onclick="debugPanel.adjustScore(5)">+5</button>
+                </div>
+            </div>
+        `;
     }
     
     /**
@@ -170,7 +199,7 @@ class DebugPanel {
         const ballOrder = ['黑', '粉', '黄', '蓝', '红']; // 永久折扣不包括大师球
         const ballConfig = BALL_CONFIG;
         
-        container.innerHTML = ballOrder.map(ball => {
+        const ballsHtml = ballOrder.map(ball => {
             const count = currentPlayer.permanent_balls[ball] || 0;
             const config = ballConfig[ball];
             
@@ -186,6 +215,47 @@ class DebugPanel {
                 </div>
             `;
         }).join('');
+        
+        // 添加快捷按钮
+        const quickButtonsHtml = `
+            <div class="debug-quick-buttons">
+                <button class="debug-quick-btn" onclick="debugPanel.addAllPermanentBalls(10)">🚀 全部 +10</button>
+                <button class="debug-quick-btn danger" onclick="debugPanel.addAllPermanentBalls(-10)">💨 全部 -10</button>
+            </div>
+        `;
+        
+        container.innerHTML = ballsHtml + quickButtonsHtml;
+    }
+    
+    /**
+     * 批量调整所有永久折扣
+     */
+    async addAllPermanentBalls(delta) {
+        const ballOrder = ['黑', '粉', '黄', '蓝', '红'];
+        
+        showToast(`正在调整所有永久折扣...`, 'info');
+        
+        try {
+            // 并行调用所有API
+            const promises = ballOrder.map(ball => 
+                api.debugAdjustPermanentBalls(
+                    gameUI.currentRoomId,
+                    gameUI.currentPlayerName,
+                    ball,
+                    delta
+                )
+            );
+            
+            await Promise.all(promises);
+            
+            showToast(`成功${delta > 0 ? '增加' : '减少'}所有永久折扣 ${Math.abs(delta)}`, 'success');
+            
+            // 刷新游戏状态和控件
+            await gameUI.pollGameState();
+            this.renderPermanentBallControls();
+        } catch (error) {
+            showToast('操作失败: ' + error.message, 'error');
+        }
     }
     
     /**
@@ -321,6 +391,30 @@ class DebugPanel {
     }
     
     /**
+     * 调整分数
+     */
+    async adjustScore(delta) {
+        try {
+            const response = await api.debugAdjustScore(
+                gameUI.currentRoomId,
+                gameUI.currentPlayerName,
+                delta
+            );
+            
+            if (response.success) {
+                showToast(`分数${delta > 0 ? '+' : ''}${delta}，当前: ${response.new_score}`, 'success');
+                // 先刷新游戏状态，再重新渲染控件
+                await gameUI.pollGameState();
+                this.renderScoreControl();
+            } else {
+                showToast(response.error || '操作失败', 'error');
+            }
+        } catch (error) {
+            showToast('操作失败: ' + error.message, 'error');
+        }
+    }
+    
+    /**
      * 调整持有球
      */
     async adjustBall(ballType, delta) {
@@ -334,10 +428,9 @@ class DebugPanel {
             
             if (response.success) {
                 showToast(`成功${delta > 0 ? '增加' : '减少'}${BALL_CONFIG[ballType].name}`, 'success');
-                // 刷新界面不需要重新打开面板
-                setTimeout(() => {
-                    this.renderBallControls();
-                }, 500);
+                // 先刷新游戏状态，再重新渲染控件
+                await gameUI.pollGameState();
+                this.renderBallControls();
             } else {
                 showToast(response.error || '操作失败', 'error');
             }
@@ -360,9 +453,9 @@ class DebugPanel {
             
             if (response.success) {
                 showToast(`成功${delta > 0 ? '增加' : '减少'}${BALL_CONFIG[ballType].name}永久折扣`, 'success');
-                setTimeout(() => {
-                    this.renderPermanentBallControls();
-                }, 500);
+                // 先刷新游戏状态，再重新渲染控件
+                await gameUI.pollGameState();
+                this.renderPermanentBallControls();
             } else {
                 showToast(response.error || '操作失败', 'error');
             }
@@ -387,9 +480,9 @@ class DebugPanel {
             
             if (response.success) {
                 showToast(`成功添加卡牌: ${card.name}`, 'success');
-                setTimeout(() => {
-                    this.updateCardList();
-                }, 500);
+                // 先刷新游戏状态，再重新渲染控件
+                await gameUI.pollGameState();
+                this.updateCardList();
             } else {
                 showToast(response.error || '添加失败', 'error');
             }
@@ -414,9 +507,9 @@ class DebugPanel {
             if (response.success) {
                 const cardName = response.card_name || '未知卡牌';
                 showToast(`成功从Lv${level}牌堆添加: ${cardName}`, 'success');
-                setTimeout(() => {
-                    this.updateCardList();
-                }, 500);
+                // 先刷新游戏状态，再重新渲染控件
+                await gameUI.pollGameState();
+                this.updateCardList();
             } else {
                 showToast(response.error || '添加失败', 'error');
             }
