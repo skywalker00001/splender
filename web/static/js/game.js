@@ -1007,14 +1007,18 @@ class GameUI {
         }).join('');
 
         // 已拥有卡牌 - 在进化阶段可点击
+        // 按等级排序（低等级在前），同等级保持购买顺序
         const canClickOwned = isMyself && isMyTurn && this.inEvolutionPhase;
-        const cardsDisplay = (state.display_area || [])
+        const sortedDisplayArea = [...(state.display_area || [])].sort((a, b) => (a.level || 0) - (b.level || 0));
+        const cardsDisplay = sortedDisplayArea
             .map(card => this.formatCardInfo(card, false, canClickOwned, 'owned'))
             .join('') || '<div class="no-cards">暂无</div>';
 
         // 预定卡牌 - 在进化阶段或正常回合都可以点击
+        // 按等级排序（低等级在前），同等级保持预定顺序
         const canClickReserved = isMyself && isMyTurn;
-        const reservedDisplay = (state.reserved_cards || [])
+        const sortedReservedCards = [...(state.reserved_cards || [])].sort((a, b) => (a.level || 0) - (b.level || 0));
+        const reservedDisplay = sortedReservedCards
             .map(card => this.formatCardInfo(card, true, canClickReserved, 'reserved'))
             .join('') || '<div class="no-cards">暂无</div>';
 
