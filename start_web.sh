@@ -2,7 +2,7 @@
 # 启动璀璨宝石宝可梦Web应用
 # export PORT=5001
 cd /home/work/houyi/pj_25_q4/splendor
-export PORT=23006
+export PORT=23001
 pkill -f web_app.py
 
 echo "🌟 璀璨宝石宝可梦 - Web应用启动脚本 🌟"
