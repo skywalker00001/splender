@@ -64,6 +64,7 @@ class Player:
         self.has_evolved_this_turn = False  # 本回合是否已进化
         self.needs_return_balls = False  # 是否需要放回球（超过10个）
         self.last_action = ""  # 记录最后一次行动的描述
+        self.has_left = False  # 是否已主动退出游戏
     
     def get_victory_points(self) -> int:
         """获取总分数（包括额外分数）"""
@@ -709,7 +710,20 @@ class SplendorPokemonGame:
         # 3. 切换到下一个玩家
         self.current_player_index = (self.current_player_index + 1) % len(self.players)
         
-        # 4. 检查游戏是否结束（最后一轮且回到起始玩家）
+        # 4. 跳过已退出的玩家
+        skip_count = 0
+        while self.players[self.current_player_index].has_left:
+            skip_count += 1
+            self.current_player_index = (self.current_player_index + 1) % len(self.players)
+            # 防止无限循环（所有玩家都退出了）
+            if skip_count >= len(self.players):
+                # 所有玩家都退出了，游戏结束
+                self.game_over = True
+                self._calculate_final_rankings()
+                print(f"所有玩家都已退出，游戏结束")
+                return
+        
+        # 5. 检查游戏是否结束（最后一轮且回到起始玩家）
         if self.final_round_triggered:
             # 如果当前玩家回到索引0，说明最后一个玩家已经完成了回合
             if self.current_player_index == 0:  # 回到第一个玩家，说明最后一个玩家刚结束

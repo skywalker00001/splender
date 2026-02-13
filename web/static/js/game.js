@@ -880,17 +880,24 @@ class GameUI {
             
             const isCurrentTurn = playerName === currentPlayer;
             const isMe = playerName === this.currentPlayerName;
+            const hasLeft = state.has_left === true;  // 是否已主动退出
             const playerNumber = index + 1;
+            const playerIcon = this.getPlayerIcon(playerName);  // 获取玩家图标
             
             const playerCard = document.createElement('div');
             playerCard.className = 'card player-card';
             if (isCurrentTurn) playerCard.classList.add('current-turn-player');
             if (isMe) playerCard.classList.add('my-player');
+            if (hasLeft) playerCard.classList.add('player-left');  // 已退出玩家的样式
+            
+            // 已退出玩家显示标签
+            const leftBadge = hasLeft ? '<span class="player-left-badge">已退出</span>' : '';
             
             const titleHTML = `
                 <h3>
                     ${isCurrentTurn ? '▶️ ' : ''}
-                    玩家${playerNumber}${isMe ? '（👤我）' : ''}: ${playerName}
+                    ${playerIcon} 玩家${playerNumber}${isMe ? '（我）' : ''}: ${playerName}
+                    ${leftBadge}
                 </h3>
             `;
             
@@ -1557,12 +1564,46 @@ class GameUI {
     }
     
     /**
+     * 获取玩家图标（真人玩家随机分配，AI统一图标）
+     */
+    getPlayerIcon(playerName) {
+        // AI统一用机器人图标
+        const isAI = playerName.includes('机器人') || playerName.includes('AI') || playerName.includes('训练家');
+        if (isAI) {
+            return '🤖';
+        }
+        
+        // 真人玩家随机分配图标（同一玩家始终使用同一图标）
+        if (!this.playerIconMap) {
+            this.playerIconMap = {};
+        }
+        
+        if (!this.playerIconMap[playerName]) {
+            // 可用的真人玩家图标列表（不含🎮，避免与轮次图标重复）
+            const humanIcons = ['🧢', '⭐', '🌟', '👑', '🎯', '💫', '🔮', '💎', '🏆', '🎪', '🌈', '🦊'];
+            
+            // 找出已使用的图标
+            const usedIcons = Object.values(this.playerIconMap);
+            
+            // 过滤出未使用的图标
+            const availableIcons = humanIcons.filter(icon => !usedIcons.includes(icon));
+            
+            // 随机选择一个（如果都用完了就从头开始）
+            const iconPool = availableIcons.length > 0 ? availableIcons : humanIcons;
+            const randomIndex = Math.floor(Math.random() * iconPool.length);
+            this.playerIconMap[playerName] = iconPool[randomIndex];
+        }
+        
+        return this.playerIconMap[playerName];
+    }
+
+    /**
      * 显示其他玩家（包括AI）的行动结束通知（详细版）
      */
     showActionEndNotificationForOthers(playerName, gameState) {
-        // 判断是否是AI
+        // 获取玩家图标
+        const icon = this.getPlayerIcon(playerName);
         const isAI = playerName.includes('机器人') || playerName.includes('AI') || playerName.includes('训练家');
-        const icon = isAI ? '🤖' : '👤';
         
         // 从游戏状态中获取该玩家的last_action
         let actionsHTML = '';
@@ -1581,8 +1622,8 @@ class GameUI {
         } else {
             // 找不到游戏状态或玩家状态，显示通用信息
             actionsHTML = isAI 
-                ? '<div style="margin: 8px 0; font-size: 0.65em; text-align: left;">🤖 AI已完成行动决策</div>'
-                : '<div style="margin: 8px 0; font-size: 0.65em; text-align: left;">👤 玩家已完成行动</div>';
+                ? `<div style="margin: 8px 0; font-size: 0.65em; text-align: left;">${icon} AI已完成行动决策</div>`
+                : `<div style="margin: 8px 0; font-size: 0.65em; text-align: left;">${icon} 玩家已完成行动</div>`;
         }
         
         // 移除旧的通知（如果存在）
@@ -1682,8 +1723,9 @@ class GameUI {
             animation: slideInFromTop 4s ease-in-out;
             max-width: 600px;
         `;
+        const icon = this.getPlayerIcon(playerName);
         notification.innerHTML = `
-            <div style="font-size: 1.3em; margin-bottom: 10px;">🏁</div>
+            <div style="font-size: 1.3em; margin-bottom: 10px;">${icon}</div>
             <div style="margin-bottom: 20px;">${playerName} 的行动结束</div>
             <div style="background: rgba(0, 0, 0, 0.3); padding: 15px; border-radius: 10px;">
                 <div style="font-size: 0.6em; margin-bottom: 10px; color: #ffeaa7;">本次行动：</div>

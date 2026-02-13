@@ -324,7 +324,8 @@ class GameRoom:
                     "victory_points": player.get_victory_points(),
                     "permanent_balls": {ball.value: count for ball, count in player.get_permanent_balls().items() if count > 0},
                     "needs_return_balls": player.needs_return_balls,
-                    "last_action": player.last_action
+                    "last_action": player.last_action,
+                    "has_left": player.has_left
                 }
                 for player in self.game.players
             }
@@ -805,21 +806,85 @@ def leave_room(room_id):
                 "players": room.players
             })
         
-        # 游戏进行中或已结束：允许退出，清除玩家的房间映射
+        # 游戏进行中：主动退出逻辑
         else:
-            # 如果游戏还在进行中，保存当前进度作为"未完成"的历史记录
-            if room.status == "playing" and room.history and room.game and not room.game.game_over:
-                try:
-                    # 保存未完成的游戏历史（不包含最终排名）
-                    # 先记录当前状态
-                    room.history.end_time = datetime.now().isoformat()
-                    room.history.winner = "游戏未完成"
-                    filepath = room.history.save_to_file()
-                    print(f"💾 游戏未完成，保存进度到: {filepath}")
-                except Exception as e:
-                    print(f"⚠️ 保存游戏进度失败: {e}")
+            if room.status == "playing" and room.game and not room.game.game_over:
+                # 找到退出的玩家对象并标记为已退出
+                leaving_player = None
+                for p in room.game.players:
+                    if p.name == player_name:
+                        leaving_player = p
+                        p.has_left = True
+                        p.last_action = "🚪 已退出游戏"
+                        break
+                
+                if not leaving_player:
+                    return jsonify({"error": "玩家不在游戏中"}), 400
+                
+                # 计算剩余真人玩家数量（不包括机器人和已退出的玩家）
+                remaining_humans = 0
+                for p in room.game.players:
+                    if not p.has_left and not room.is_ai_player(p.name):
+                        remaining_humans += 1
+                
+                print(f"🚪 {player_name} 主动退出，剩余真人玩家: {remaining_humans}")
+                
+                # 如果当前是该玩家的回合，立即结束回合
+                current_player = room.game.get_current_player()
+                if current_player and current_player.name == player_name:
+                    room.game.end_turn()
+                    room.record_turn_end()
+                
+                # 清除玩家映射和用户的当前房间
+                if player_name in player_to_room and player_to_room[player_name] == room_id:
+                    del player_to_room[player_name]
+                with user_lock:
+                    if player_name in users:
+                        users[player_name].current_room_id = None
+                        users[player_name].status = UserStatus.ONLINE
+                
+                # 检查是否需要结束游戏（剩余真人 <= 0）
+                if remaining_humans <= 0:
+                    # 所有真人都退出了，结束游戏
+                    print(f"🏁 所有真人玩家已退出，游戏结束")
+                    room.game.game_over = True
+                    room.game._calculate_final_rankings()
+                    
+                    # 保存完整的对局历史
+                    if room.history:
+                        try:
+                            rankings = room.game.get_final_rankings()
+                            room.history.end_game("所有真人玩家退出", rankings)
+                            filepath = room.history.save_to_file()
+                            print(f"💾 游戏历史已保存: {filepath}")
+                        except Exception as e:
+                            print(f"⚠️ 保存游戏历史失败: {e}")
+                    
+                    # 销毁房间
+                    for p in room.players:
+                        if p in player_to_room and player_to_room[p] == room_id:
+                            del player_to_room[p]
+                        with user_lock:
+                            if p in users:
+                                users[p].current_room_id = None
+                                users[p].status = UserStatus.ONLINE
+                    del game_rooms[room_id]
+                    
+                    return jsonify({
+                        "message": "你已退出游戏，所有真人玩家退出，游戏结束",
+                        "room_deleted": True,
+                        "game_ended": True
+                    })
+                
+                # 还有其他真人玩家，游戏继续
+                return jsonify({
+                    "message": "已退出游戏（你的回合将被自动跳过，无法重连）",
+                    "room_deleted": False,
+                    "game_continues": True,
+                    "remaining_humans": remaining_humans
+                })
             
-            # 清除玩家映射和用户的当前房间
+            # 游戏已结束：直接清除映射
             if player_name in player_to_room and player_to_room[player_name] == room_id:
                 del player_to_room[player_name]
             with user_lock:
@@ -827,13 +892,9 @@ def leave_room(room_id):
                     users[player_name].current_room_id = None
                     users[player_name].status = UserStatus.ONLINE
             
-            # 注意：不从room.players中移除，保持游戏完整性
-            # 只是让玩家可以创建/加入新房间
-            
             return jsonify({
-                "message": "已退出游戏（游戏将继续进行）",
-                "room_deleted": False,
-                "game_abandoned": True
+                "message": "已退出游戏",
+                "room_deleted": False
             })
 
 @app.route('/api/rooms/<room_id>', methods=['DELETE'])

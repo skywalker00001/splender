@@ -27,7 +27,8 @@ function saveGameSession(roomId, playerName) {
         playerName: playerName,
         timestamp: Date.now()
     };
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    // 使用 localStorage 确保关闭标签页后数据不丢失
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
 }
 
 /**
@@ -35,7 +36,7 @@ function saveGameSession(roomId, playerName) {
  */
 function getGameSession() {
     try {
-        const data = sessionStorage.getItem(STORAGE_KEY);
+        const data = localStorage.getItem(STORAGE_KEY);
         if (!data) return null;
         
         const session = JSON.parse(data);
@@ -59,7 +60,7 @@ function getGameSession() {
  * 清除游戏会话
  */
 function clearGameSession() {
-    sessionStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_KEY);
 }
 
 /**
@@ -129,7 +130,7 @@ async function initApp() {
     // 绑定事件监听器
     bindEventListeners();
     
-    // 检查是否有刚刚登录的结果（用于显示"重新加入游戏"按钮）
+    // 检查是否有刚刚登录的结果（用于显示重连弹窗）
     const loginResultStr = localStorage.getItem('splendor_login_result');
     if (loginResultStr) {
         try {
@@ -137,20 +138,35 @@ async function initApp() {
             // 清除登录结果（只用一次）
             localStorage.removeItem('splendor_login_result');
             
-            // 只有游戏进行中才显示"重新加入游戏"按钮（房间等待状态不重连）
+            // 只有游戏进行中才显示重连弹窗
             if (loginResult.has_active_game && loginResult.active_game) {
-                // 只处理游戏进行中的情况
                 if (loginResult.active_game.status === 'playing') {
-                    userActiveGame = loginResult.active_game;
-                    showRejoinGameButton(loginResult.active_game);
-                    showToast('检测到未完成的游戏，点击"重新加入游戏"继续', 'info');
+                    // 构造 session 对象，显示统一的重连弹窗
+                    const session = {
+                        roomId: loginResult.active_game.room_id,
+                        playerName: playerName
+                    };
+                    // 构造 gameState 对象
+                    const gameState = {
+                        status: loginResult.active_game.status,
+                        players: loginResult.active_game.players || [],
+                        max_players: loginResult.active_game.max_players || 4,
+                        creator_name: loginResult.active_game.creator_name
+                    };
+                    // 保存游戏会话
+                    saveGameSession(session.roomId, session.playerName);
+                    // 显示统一的重连弹窗
+                    showReconnectModal(session, gameState);
                 }
-                // waiting 状态不显示重连按钮，用户需要自己创建/加入房间
+                // waiting 状态不显示重连弹窗，用户需要自己创建/加入房间
             }
         } catch (e) {
             console.error('解析登录结果失败:', e);
             localStorage.removeItem('splendor_login_result');
         }
+    } else {
+        // 没有登录结果（可能是刷新页面），检查 localStorage 中的游戏会话
+        await checkUnfinishedGame();
     }
 }
 
@@ -278,6 +294,15 @@ async function checkUnfinishedGame() {
             return;
         }
         
+        // 检查玩家是否已主动退出（has_left）
+        const playerState = state.player_states?.[session.playerName];
+        if (playerState?.has_left) {
+            // 玩家已主动退出，不允许重连
+            clearGameSession();
+            showToast('你已退出该游戏，无法重连', 'info');
+            return;
+        }
+        
         // 显示重连弹窗
         showReconnectModal(session, state);
         
@@ -290,6 +315,8 @@ async function checkUnfinishedGame() {
 
 /**
  * 显示重连弹窗
+ * 游戏进行中：强制重连，没有选择
+ * 等待状态：可以选择继续或开始新游戏
  */
 function showReconnectModal(session, gameState) {
     const modal = document.createElement('div');
@@ -299,27 +326,59 @@ function showReconnectModal(session, gameState) {
     const statusText = gameState.status === 'waiting' ? '等待中' : '进行中';
     const playerCount = gameState.players?.length || 0;
     const maxPlayers = gameState.max_players || 4;
+    const isPlaying = gameState.status === 'playing';
+    
+    // 游戏进行中：强制重连，不提供"开始新游戏"选项
+    // 使用漂亮的粉色渐变按钮样式
+    const continueButtonStyle = `
+        width: 100%; 
+        padding: 18px 30px; 
+        font-size: 1.3em; 
+        font-weight: bold;
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); 
+        border: none;
+        border-radius: 12px;
+        color: white;
+        cursor: pointer;
+        animation: pulse 2s ease-in-out infinite;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        box-shadow: 0 8px 30px rgba(245, 87, 108, 0.4);
+    `;
+    
+    const buttonsHtml = isPlaying ? `
+        <div style="margin-top: 20px;">
+            <button id="continue-game-btn" style="${continueButtonStyle}">
+                ⚡ 重新加入游戏 ⚡
+            </button>
+        </div>
+    ` : `
+        <div style="margin-top: 20px;">
+            <button id="continue-game-btn" style="${continueButtonStyle}">
+                ⚡ 继续游戏 ⚡
+            </button>
+            <button id="new-game-btn" class="btn btn-secondary" style="width: 100%; margin-top: 12px; padding: 12px;">
+                🆕 开始新游戏
+            </button>
+        </div>
+    `;
+    
+    const hintText = isPlaying 
+        ? '如需退出，请在游戏内点击"退出游戏"按钮'
+        : '游戏尚未开始，你可以选择继续等待或开始新游戏';
     
     modal.innerHTML = `
-        <div class="modal-content" style="max-width: 450px;">
-            <h3>🎮 检测到未完成的游戏</h3>
-            <div style="margin: 20px 0; padding: 15px; background: rgba(0,0,0,0.3); border-radius: 8px;">
-                <p style="margin: 8px 0;"><strong>房间号：</strong>${session.roomId}</p>
-                <p style="margin: 8px 0;"><strong>玩家名：</strong>${session.playerName}</p>
-                <p style="margin: 8px 0;"><strong>状态：</strong>${statusText}</p>
-                <p style="margin: 8px 0;"><strong>玩家数：</strong>${playerCount}/${maxPlayers}</p>
+        <div class="modal-content" style="max-width: 420px; text-align: center;">
+            <h3 style="font-size: 1.5em; margin-bottom: 20px;">🎮 检测到未完成的游戏</h3>
+            <div style="margin: 20px 0; padding: 18px; background: rgba(0,0,0,0.3); border-radius: 12px; text-align: left;">
+                <p style="margin: 10px 0; font-size: 1.1em;"><strong>房间号：</strong>${session.roomId}</p>
+                <p style="margin: 10px 0; font-size: 1.1em;"><strong>玩家名：</strong>${session.playerName}</p>
+                <p style="margin: 10px 0; font-size: 1.1em;"><strong>状态：</strong><span style="color: ${isPlaying ? '#2ecc71' : '#f1c40f'};">${statusText}</span></p>
+                <p style="margin: 10px 0; font-size: 1.1em;"><strong>玩家数：</strong>${playerCount}/${maxPlayers}</p>
             </div>
-            <p style="color: #f1c40f; margin-bottom: 15px;">
-                ${gameState.status === 'waiting' ? '游戏尚未开始' : '游戏正在进行中'}
+            <p style="color: #aaa; font-size: 0.95em; margin-bottom: 5px;">
+                ${hintText}
             </p>
-            <div class="modal-buttons">
-                <button id="continue-game-btn" class="btn btn-primary">
-                    ✅ 继续游戏
-                </button>
-                <button id="new-game-btn" class="btn btn-secondary">
-                    🆕 开始新游戏
-                </button>
-            </div>
+            ${buttonsHtml}
         </div>
     `;
     
@@ -331,11 +390,15 @@ function showReconnectModal(session, gameState) {
         reconnectToGame(session, gameState);
     });
     
-    document.getElementById('new-game-btn').addEventListener('click', () => {
-        document.body.removeChild(modal);
-        clearGameSession();
-        showToast('已清除上次游戏记录，可以开始新游戏', 'info');
-    });
+    // 只有等待状态才有"开始新游戏"按钮
+    const newGameBtn = document.getElementById('new-game-btn');
+    if (newGameBtn) {
+        newGameBtn.addEventListener('click', () => {
+            document.body.removeChild(modal);
+            clearGameSession();
+            showToast('已清除上次游戏记录，可以开始新游戏', 'info');
+        });
+    }
 }
 
 /**
@@ -1040,10 +1103,28 @@ async function handleDeleteRoom() {
 // 拿取球和结束行动已移至game.js中的gameUI对象
 
 /**
- * 退出游戏
+ * 退出游戏 - 主动退出
  */
-function handleQuitGame() {
-    if (confirm('确定要退出游戏吗？')) {
+async function handleQuitGame() {
+    // 显示更明确的确认对话框
+    const confirmed = confirm(
+        '⚠️ 确定要退出游戏吗？\n\n' +
+        '【重要提示】\n' +
+        '退出后你将 无法重新连接 回本局游戏！\n\n' +
+        '退出后：\n' +
+        '• 你的回合将被自动跳过\n' +
+        '• 游戏继续进行（如果还有其他真人玩家）\n' +
+        '• 你可以创建或加入新的游戏'
+    );
+    
+    if (!confirmed) {
+        return;
+    }
+    
+    try {
+        // 调用后端API主动退出
+        const result = await api.leaveRoom(currentRoom, playerName);
+        
         // 清除游戏会话
         clearGameSession();
         
@@ -1055,6 +1136,26 @@ function handleQuitGame() {
         resetGame();
         
         // 清除活跃游戏标记
+        userActiveGame = null;
+        hideRejoinGameButton();
+        
+        // 显示退出结果
+        if (result.game_ended) {
+            showToast('你已退出游戏，所有真人玩家退出，游戏结束', 'info');
+        } else if (result.game_continues) {
+            showToast('已退出游戏（你的回合将被自动跳过）', 'info');
+        } else {
+            showToast(result.message || '已退出游戏', 'info');
+        }
+    } catch (error) {
+        console.error('退出游戏失败:', error);
+        
+        // 即使出错也返回大厅
+        clearGameSession();
+        shouldAutoJoinGame = false;
+        gameUI.stopPolling();
+        switchScreen('lobby-screen');
+        resetGame();
         userActiveGame = null;
         hideRejoinGameButton();
         

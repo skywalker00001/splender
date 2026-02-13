@@ -806,6 +806,29 @@ select {
     border: 2px solid #2ecc71;
 }
 
+/* 已退出玩家样式 */
+.player-card.player-left {
+    opacity: 0.6;
+    background: rgba(100, 100, 100, 0.15);
+    border: 1px dashed rgba(255, 255, 255, 0.2);
+}
+
+.player-card.player-left h3 {
+    background: rgba(100, 100, 100, 0.3);
+    color: #aaa;
+}
+
+.player-left-badge {
+    display: inline-block;
+    background: #e74c3c;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.7em;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
 .player-stats {
     display: flex;
     justify-content: space-around;
